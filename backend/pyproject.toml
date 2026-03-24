@@ -1,0 +1,9 @@
+[project]
+name = "nas-camera-replay-backend"
+version = "0.1.0"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "pydantic",
+]
