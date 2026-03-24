@@ -12,7 +12,7 @@ from app.core.db import Base
 from app.core.db import SessionLocal
 from app.models import IndexJob, VideoFile
 from app.services.file_scanner import scan_video_files, should_reprobe
-from app.services.filename_parser import parse_camera_filename
+from app.services.filename_parser import ParsedFilename, parse_camera_filename
 from app.services.media_probe import probe_media
 from app.tasks.rebuild_day import (
     collect_impacted_days,
@@ -29,8 +29,18 @@ def _serialize_issue_flags(issue_flags: list[str]) -> str:
     return json.dumps(issue_flags)
 
 
-def _build_video_file_payload(incoming_file, now_iso: str) -> dict[str, object]:
-    parsed = parse_camera_filename(incoming_file.name)
+def _parse_filename_or_none(file_name: str) -> ParsedFilename | None:
+    try:
+        return parse_camera_filename(file_name)
+    except ValueError:
+        return None
+
+
+def _build_video_file_payload(
+    incoming_file,
+    now_iso: str,
+    parsed: ParsedFilename,
+) -> dict[str, object]:
     probe = probe_media(str(incoming_file.path))
     actual_start_at = parsed.name_start_at
     actual_end_at = actual_start_at + timedelta(seconds=probe.duration_sec)
@@ -70,7 +80,8 @@ def _upsert_video_file(
         return existing, set(), False
 
     previous_days = set(collect_impacted_days(existing)) if existing is not None else set()
-    payload = _build_video_file_payload(incoming_file, now_iso)
+    parsed = parse_camera_filename(incoming_file.name)
+    payload = _build_video_file_payload(incoming_file, now_iso, parsed)
 
     if existing is None:
         file_record = VideoFile(created_at=now_iso, **payload)
@@ -83,6 +94,53 @@ def _upsert_video_file(
         session.flush()
 
     return file_record, previous_days, True
+
+
+def _upsert_invalid_video_file(
+    session: Session,
+    incoming_file,
+    now_iso: str,
+    issue_flag: str = "invalid_media",
+) -> tuple[VideoFile, set[str]]:
+    existing = (
+        session.query(VideoFile)
+        .filter(VideoFile.file_path == str(incoming_file.path))
+        .one_or_none()
+    )
+    previous_days = set(collect_impacted_days(existing)) if existing is not None else set()
+    parsed = _parse_filename_or_none(incoming_file.name)
+
+    payload = {
+        "file_path": str(incoming_file.path),
+        "file_name": incoming_file.name,
+        "file_size": incoming_file.file_size,
+        "file_mtime": incoming_file.file_mtime,
+        "name_start_at": parsed.name_start_at.isoformat() if parsed is not None else None,
+        "name_end_at": parsed.name_end_at.isoformat() if parsed is not None else None,
+        "probe_duration_sec": None,
+        "probe_video_codec": None,
+        "probe_audio_codec": None,
+        "probe_width": None,
+        "probe_height": None,
+        "probe_start_time_sec": None,
+        "actual_start_at": None,
+        "actual_end_at": None,
+        "time_source": "filename" if parsed is not None else "unknown",
+        "status": "invalid",
+        "issue_flags": _serialize_issue_flags([issue_flag]),
+        "updated_at": now_iso,
+    }
+
+    if existing is None:
+        file_record = VideoFile(created_at=now_iso, **payload)
+        session.add(file_record)
+    else:
+        for key, value in payload.items():
+            setattr(existing, key, value)
+        file_record = existing
+
+    session.flush()
+    return file_record, previous_days
 
 
 def run_index_job(
@@ -109,9 +167,8 @@ def run_index_job(
     if target_day is not None:
         filtered_files = []
         for incoming_file in scanned_files:
-            try:
-                parsed = parse_camera_filename(incoming_file.name)
-            except ValueError:
+            parsed = _parse_filename_or_none(incoming_file.name)
+            if parsed is None:
                 continue
             day_span = {
                 parsed.name_start_at.date().isoformat(),
@@ -135,8 +192,15 @@ def run_index_job(
                 now_iso=_now_iso(),
             )
         except ValueError:
+            _, previous_days = _upsert_invalid_video_file(
+                session=session,
+                incoming_file=incoming_file,
+                now_iso=_now_iso(),
+            )
+            for day in sorted(previous_days):
+                rebuild_day_timeline(session, day)
+            session.commit()
             failed_count += 1
-            session.rollback()
             continue
 
         if changed:
@@ -150,6 +214,10 @@ def run_index_job(
             warning_count += 1
         else:
             success_count += 1
+
+    if target_day is not None:
+        rebuild_day_timeline(session, target_day)
+        session.commit()
 
     job.scanned_count = scanned_count
     job.success_count = success_count

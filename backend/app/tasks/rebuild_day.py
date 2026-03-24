@@ -56,7 +56,7 @@ def _build_timeline_source(record: VideoFile) -> TimelineSourceFile | None:
     return TimelineSourceFile(
         file_id=record.id,
         file_name=record.file_name,
-        playback_url=f"/api/files/{record.id}/play",
+        playback_url=f"/api/videos/{record.id}/stream",
         name_start_at=datetime.fromisoformat(record.name_start_at),
         name_end_at=datetime.fromisoformat(record.name_end_at),
         probe_duration_sec=float(record.probe_duration_sec),
