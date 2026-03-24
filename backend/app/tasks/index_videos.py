@@ -65,7 +65,7 @@ def _should_scan_for_target_day(
         .filter(VideoFile.file_path == str(incoming_file.path))
         .one_or_none()
     )
-    if existing is not None:
+    if existing is not None and not should_reprobe(existing, incoming_file):
         return target_day in collect_impacted_days(existing)
 
     parsed = _parse_filename_or_none(incoming_file.name)

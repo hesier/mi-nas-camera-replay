@@ -381,3 +381,88 @@ def test_run_index_job_target_day_includes_new_file_that_actual_range_crosses_ne
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 300.0
     assert summary.has_warning is True
+
+
+def test_run_index_job_target_day_includes_changed_existing_file_that_new_range_crosses_next_day(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317235500_20260317235900.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"xx")
+
+    sqlite_session.add(
+        VideoFile(
+            file_path=str(file_path),
+            file_name=file_name,
+            file_size=1,
+            file_mtime=1711238000,
+            name_start_at="2026-03-17T23:55:00+08:00",
+            name_end_at="2026-03-17T23:59:00+08:00",
+            probe_duration_sec=240.0,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=0.0,
+            actual_start_at="2026-03-17T23:55:00+08:00",
+            actual_end_at="2026-03-17T23:59:00+08:00",
+            time_source="filename",
+            status="ready",
+            issue_flags="[]",
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 2,
+                    "file_mtime": 1711238100,
+                },
+            )()
+        ],
+    )
+
+    probe_called = False
+
+    def fake_probe(_: Path):
+        nonlocal probe_called
+        probe_called = True
+        return ProbeResult(duration_sec=600.0, start_time_sec=0.0)
+
+    monkeypatch.setattr("app.tasks.index_videos.probe_media", fake_probe)
+
+    job = run_index_job(sqlite_session, root=tmp_path, target_day="2026-03-18")
+
+    assert probe_called is True
+    assert job.scanned_count == 1
+    assert job.failed_count == 0
+
+    stored_file = sqlite_session.query(VideoFile).one()
+    assert stored_file.file_size == 2
+    assert stored_file.file_mtime == 1711238100
+    assert stored_file.actual_end_at == "2026-03-18T00:05:00+08:00"
+
+    next_day_segments = (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.day == "2026-03-18")
+        .all()
+    )
+    assert len(next_day_segments) == 1
+    assert next_day_segments[0].segment_start_at == "2026-03-18T00:00:00+08:00"
+    assert next_day_segments[0].segment_end_at == "2026-03-18T00:05:00+08:00"
+
+    summary = sqlite_session.get(DaySummary, "2026-03-18")
+    assert summary is not None
+    assert summary.total_segment_count == 1
+    assert summary.total_recorded_sec == 300.0
