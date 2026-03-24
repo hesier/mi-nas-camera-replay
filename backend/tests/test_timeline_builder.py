@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services.filename_parser import parse_camera_filename
 from app.services.timeline_builder import (
+    TimelineDayRange,
     TimelineSourceFile,
     build_day_timeline,
     build_timelines_by_day,
@@ -166,7 +167,66 @@ def test_build_timeline_marks_overlap_as_warning():
     assert result.segments[1].status == "warning"
     assert result.segments[1].issue_flags == ["overlap_before"]
     assert result.summary.total_gap_sec == 0.0
-    assert result.summary.total_recorded_sec == 600.0
+    assert result.summary.total_recorded_sec == 595.0
+    assert result.summary.has_warning is True
+
+
+def test_build_timeline_does_not_create_false_gap_after_nested_overlap():
+    file_records = [
+        _make_source_file(
+            file_id=1,
+            file_name="00_20260317000000_20260317001000.mp4",
+            probe_duration_sec=600.0,
+        ),
+        _make_source_file(
+            file_id=2,
+            file_name="00_20260317000500_20260317000700.mp4",
+            probe_duration_sec=120.0,
+        ),
+        _make_source_file(
+            file_id=3,
+            file_name="00_20260317001000_20260317001200.mp4",
+            probe_duration_sec=120.0,
+        ),
+    ]
+
+    day_ranges = []
+    for file_record in file_records:
+        day_ranges.extend(split_file_ranges_by_day(file_record))
+
+    result = build_day_timeline(day_ranges)
+
+    assert result.gaps == []
+    assert result.segments[1].prev_gap_sec == -300.0
+    assert result.segments[2].prev_gap_sec == 0.0
+    assert result.summary.total_gap_sec == 0.0
+    assert result.summary.total_recorded_sec == 720.0
+
+
+def test_build_timeline_preserves_input_warning_status():
+    day_ranges = [
+        TimelineDayRange(
+            file_id=1,
+            day="2026-03-17",
+            segment_start_at=parse_camera_filename(
+                "00_20260317000000_20260317000500.mp4"
+            ).name_start_at,
+            segment_end_at=parse_camera_filename(
+                "00_20260317000000_20260317000500.mp4"
+            ).name_end_at,
+            duration_sec=300.0,
+            playback_url="/api/files/1/play",
+            file_offset_sec=0.0,
+            status="warning",
+            issue_flags=(),
+        )
+    ]
+
+    result = build_day_timeline(day_ranges)
+
+    assert len(result.segments) == 1
+    assert result.segments[0].status == "warning"
+    assert result.segments[0].issue_flags == []
     assert result.summary.has_warning is True
 
 

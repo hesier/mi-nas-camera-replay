@@ -192,17 +192,20 @@ def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildR
     segments: list[TimelineSegmentSnapshot] = []
     gaps: list[TimelineGap] = []
     total_gap_sec = 0.0
+    total_recorded_sec = 0.0
+    covered_until: datetime | None = None
+    covered_by_segment_index: int | None = None
 
     for item in sorted_ranges:
         issue_flags = list(item.issue_flags)
         prev_gap_sec: float | None = None
         next_gap_sec: float | None = None
+        current_segment_index = len(segments)
 
-        if segments:
-            previous_segment = segments[-1]
-            gap_sec = (
-                item.segment_start_at - previous_segment.segment_end_at
-            ).total_seconds()
+        if covered_until is None:
+            total_recorded_sec += item.duration_sec
+        else:
+            gap_sec = (item.segment_start_at - covered_until).total_seconds()
 
             if 0 <= gap_sec <= CONTINUOUS_GAP_SEC:
                 gap_sec = 0.0
@@ -211,10 +214,10 @@ def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildR
                 gaps.append(
                     TimelineGap(
                         day=item.day,
-                        gap_start_at=previous_segment.segment_end_at,
+                        gap_start_at=covered_until,
                         gap_end_at=item.segment_start_at,
                         gap_sec=gap_sec,
-                        previous_file_id=previous_segment.file_id,
+                        previous_file_id=segments[covered_by_segment_index].file_id,
                         next_file_id=item.file_id,
                     )
                 )
@@ -224,10 +227,22 @@ def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildR
                 issue_flags.append("overlap_before")
 
             prev_gap_sec = gap_sec
-            segments[-1] = replace(previous_segment, next_gap_sec=gap_sec)
+            if covered_by_segment_index is not None:
+                segments[covered_by_segment_index] = replace(
+                    segments[covered_by_segment_index],
+                    next_gap_sec=gap_sec,
+                )
+
+            additional_start_at = max(item.segment_start_at, covered_until)
+            if item.segment_end_at > additional_start_at:
+                total_recorded_sec += (
+                    item.segment_end_at - additional_start_at
+                ).total_seconds()
 
         deduped_issue_flags = list(dict.fromkeys(issue_flags))
-        status = "warning" if deduped_issue_flags else "ready"
+        status = item.status
+        if status == "ready" and deduped_issue_flags:
+            status = "warning"
         segments.append(
             TimelineSegmentSnapshot(
                 file_id=item.file_id,
@@ -243,10 +258,12 @@ def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildR
                 issue_flags=deduped_issue_flags,
             )
         )
+        if covered_until is None or item.segment_end_at > covered_until:
+            covered_until = item.segment_end_at
+            covered_by_segment_index = current_segment_index
 
     first_segment_at = min(segment.segment_start_at for segment in segments)
     last_segment_at = max(segment.segment_end_at for segment in segments)
-    total_recorded_sec = sum(segment.duration_sec for segment in segments)
     has_warning = any(segment.status == "warning" for segment in segments)
 
     return TimelineBuildResult(
