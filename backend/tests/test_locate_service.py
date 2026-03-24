@@ -99,3 +99,39 @@ def test_locate_at_returns_gap_and_next_segment(sqlite_session):
     }
     assert result["nextSegment"]["id"] == 602
     assert result["nextSegment"]["issueFlags"] == ["gap_before"]
+
+
+def test_locate_at_treats_equivalent_instants_with_different_offsets_as_same(
+    sqlite_session,
+):
+    sqlite_session.add(_make_video_file(71))
+    sqlite_session.add(
+        TimelineSegment(
+            id=701,
+            file_id=71,
+            day="2026-03-18",
+            segment_start_at="2026-03-18T00:00:00+08:00",
+            segment_end_at="2026-03-18T00:01:00+08:00",
+            duration_sec=60.0,
+            playback_url="/api/videos/71/stream",
+            file_offset_sec=10.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="ready",
+        )
+    )
+    sqlite_session.commit()
+
+    shanghai_result = locate_at(
+        sqlite_session,
+        datetime.fromisoformat("2026-03-18T00:00:15+08:00"),
+    )
+    utc_result = locate_at(
+        sqlite_session,
+        datetime.fromisoformat("2026-03-17T16:00:15+00:00"),
+    )
+
+    assert shanghai_result == utc_result
+    assert shanghai_result["found"] is True
+    assert shanghai_result["segment"]["id"] == 701
+    assert shanghai_result["seekOffsetSec"] == 25.0

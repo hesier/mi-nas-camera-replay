@@ -12,9 +12,10 @@ from app.services.timeline_builder import WARNING_GAP_SEC
 
 
 def _normalize_datetime(value: datetime, timezone_name: str) -> datetime:
-    if value.tzinfo is not None:
-        return value
-    return value.replace(tzinfo=ZoneInfo(timezone_name))
+    timezone = ZoneInfo(timezone_name)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone)
+    return value.astimezone(timezone)
 
 
 def _parse_issue_flags(raw_issue_flags: str | None) -> list[str]:
