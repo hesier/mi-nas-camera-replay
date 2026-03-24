@@ -6,4 +6,6 @@ dependencies = [
   "uvicorn[standard]",
   "sqlalchemy",
   "pydantic",
+  "pydantic-settings",
+  "pytest",
 ]
