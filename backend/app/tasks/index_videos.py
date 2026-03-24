@@ -14,6 +14,7 @@ from app.models import IndexJob, VideoFile
 from app.services.file_scanner import scan_video_files, should_reprobe
 from app.services.filename_parser import ParsedFilename, parse_camera_filename
 from app.services.media_probe import probe_media
+from app.services.timeline_builder import DURATION_MISMATCH_SEC
 from app.tasks.rebuild_day import (
     collect_impacted_days,
     rebuild_day_timeline,
@@ -27,6 +28,20 @@ def _now_iso() -> str:
 
 def _serialize_issue_flags(issue_flags: list[str]) -> str:
     return json.dumps(issue_flags)
+
+
+def _build_video_file_status(
+    parsed: ParsedFilename,
+    probe_duration_sec: float,
+) -> tuple[str, list[str]]:
+    expected_duration_sec = (
+        parsed.name_end_at - parsed.name_start_at
+    ).total_seconds()
+    issue_flags: list[str] = []
+    if abs(expected_duration_sec - probe_duration_sec) > DURATION_MISMATCH_SEC:
+        issue_flags.append("duration_mismatch")
+    status = "warning" if issue_flags else "ready"
+    return status, issue_flags
 
 
 def _parse_filename_or_none(file_name: str) -> ParsedFilename | None:
@@ -44,6 +59,7 @@ def _build_video_file_payload(
     probe = probe_media(str(incoming_file.path))
     actual_start_at = parsed.name_start_at
     actual_end_at = actual_start_at + timedelta(seconds=probe.duration_sec)
+    status, issue_flags = _build_video_file_status(parsed, probe.duration_sec)
     return {
         "file_path": str(incoming_file.path),
         "file_name": incoming_file.name,
@@ -60,8 +76,8 @@ def _build_video_file_payload(
         "actual_start_at": actual_start_at.isoformat(),
         "actual_end_at": actual_end_at.isoformat(),
         "time_source": "filename",
-        "status": "ready",
-        "issue_flags": _serialize_issue_flags([]),
+        "status": status,
+        "issue_flags": _serialize_issue_flags(issue_flags),
         "updated_at": now_iso,
     }
 

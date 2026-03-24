@@ -279,3 +279,50 @@ def test_run_index_job_persists_invalid_video_file_when_probe_fails(
 
     assert sqlite_session.query(TimelineSegment).count() == 0
     assert sqlite_session.query(DaySummary).count() == 0
+
+
+def test_run_index_job_marks_duration_mismatch_as_warning(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=620.0, start_time_sec=0.0),
+    )
+
+    job = run_index_job(sqlite_session, root=tmp_path)
+
+    stored_file = sqlite_session.query(VideoFile).one()
+    assert stored_file.status == "warning"
+    assert "duration_mismatch" in json.loads(stored_file.issue_flags)
+
+    stored_segment = sqlite_session.query(TimelineSegment).one()
+    assert stored_segment.status == "warning"
+
+    summary = sqlite_session.get(DaySummary, "2026-03-17")
+    assert summary is not None
+    assert summary.has_warning is True
+
+    assert job.warning_count == 1
+    assert job.success_count == 0
+    assert job.failed_count == 0
