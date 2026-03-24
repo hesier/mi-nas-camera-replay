@@ -55,6 +55,15 @@ def _parse_day(value: str) -> date:
     return date.fromisoformat(value)
 
 
+def _is_target_day_candidate_from_filename(
+    parsed: ParsedFilename,
+    target_day: str,
+) -> bool:
+    candidate_day = _parse_day(target_day)
+    latest_possible_day = parsed.name_end_at.date() + timedelta(days=1)
+    return parsed.name_start_at.date() <= candidate_day <= latest_possible_day
+
+
 def _should_scan_for_target_day(
     session: Session,
     incoming_file,
@@ -71,7 +80,7 @@ def _should_scan_for_target_day(
     parsed = _parse_filename_or_none(incoming_file.name)
     if parsed is None:
         return False
-    return parsed.name_start_at.date() <= _parse_day(target_day)
+    return _is_target_day_candidate_from_filename(parsed, target_day)
 
 
 def _build_video_file_payload(
@@ -182,6 +191,45 @@ def _upsert_invalid_video_file(
     return file_record, previous_days
 
 
+def _update_job_counters(
+    file_record: VideoFile,
+    *,
+    success_count: int,
+    warning_count: int,
+    failed_count: int,
+) -> tuple[int, int, int]:
+    if file_record.status == "warning":
+        return success_count, warning_count + 1, failed_count
+    if file_record.status == "invalid":
+        return success_count, warning_count, failed_count + 1
+    return success_count + 1, warning_count, failed_count
+
+
+def _finalize_job(
+    session: Session,
+    job_id: int,
+    *,
+    scanned_count: int,
+    success_count: int,
+    warning_count: int,
+    failed_count: int,
+    status: str,
+) -> IndexJob:
+    job = session.get(IndexJob, job_id)
+    if job is None:
+        raise ValueError("index job missing")
+    job.scanned_count = scanned_count
+    job.success_count = success_count
+    job.warning_count = warning_count
+    job.failed_count = failed_count
+    job.finished_at = _now_iso()
+    job.status = status
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
 def run_index_job(
     session: Session,
     root: str | Path | None = None,
@@ -202,65 +250,79 @@ def run_index_job(
     session.commit()
     session.refresh(job)
 
-    scanned_files = scan_video_files(root or get_settings().video_root)
-    if target_day is not None:
-        scanned_files = [
-            incoming_file
-            for incoming_file in scanned_files
-            if _should_scan_for_target_day(session, incoming_file, target_day)
-        ]
-
     scanned_count = 0
     success_count = 0
     warning_count = 0
     failed_count = 0
 
-    for incoming_file in scanned_files:
-        scanned_count += 1
-        try:
-            file_record, previous_days, changed = _upsert_video_file(
-                session=session,
-                incoming_file=incoming_file,
-                now_iso=_now_iso(),
+    try:
+        scanned_files = scan_video_files(root or get_settings().video_root)
+        if target_day is not None:
+            scanned_files = [
+                incoming_file
+                for incoming_file in scanned_files
+                if _should_scan_for_target_day(session, incoming_file, target_day)
+            ]
+
+        for incoming_file in scanned_files:
+            scanned_count += 1
+            try:
+                file_record, previous_days, changed = _upsert_video_file(
+                    session=session,
+                    incoming_file=incoming_file,
+                    now_iso=_now_iso(),
+                )
+            except ValueError:
+                _, previous_days = _upsert_invalid_video_file(
+                    session=session,
+                    incoming_file=incoming_file,
+                    now_iso=_now_iso(),
+                )
+                for day in sorted(previous_days):
+                    rebuild_day_timeline(session, day)
+                session.commit()
+                failed_count += 1
+                continue
+
+            if changed:
+                current_days = set(collect_impacted_days(file_record))
+                for day in sorted(previous_days - current_days):
+                    rebuild_day_timeline(session, day)
+                rebuild_impacted_days(session, file_record)
+                session.commit()
+
+            success_count, warning_count, failed_count = _update_job_counters(
+                file_record,
+                success_count=success_count,
+                warning_count=warning_count,
+                failed_count=failed_count,
             )
-        except ValueError:
-            _, previous_days = _upsert_invalid_video_file(
-                session=session,
-                incoming_file=incoming_file,
-                now_iso=_now_iso(),
-            )
-            for day in sorted(previous_days):
-                rebuild_day_timeline(session, day)
+
+        if target_day is not None:
+            rebuild_day_timeline(session, target_day)
             session.commit()
-            failed_count += 1
-            continue
+    except Exception:
+        session.rollback()
+        _finalize_job(
+            session,
+            job.id,
+            scanned_count=scanned_count,
+            success_count=success_count,
+            warning_count=warning_count,
+            failed_count=failed_count,
+            status="failed",
+        )
+        raise
 
-        if changed:
-            current_days = set(collect_impacted_days(file_record))
-            for day in sorted(previous_days - current_days):
-                rebuild_day_timeline(session, day)
-            rebuild_impacted_days(session, file_record)
-            session.commit()
-
-        if file_record.status == "warning":
-            warning_count += 1
-        else:
-            success_count += 1
-
-    if target_day is not None:
-        rebuild_day_timeline(session, target_day)
-        session.commit()
-
-    job.scanned_count = scanned_count
-    job.success_count = success_count
-    job.warning_count = warning_count
-    job.failed_count = failed_count
-    job.finished_at = _now_iso()
-    job.status = "success" if failed_count == 0 else "warning"
-    session.add(job)
-    session.commit()
-    session.refresh(job)
-    return job
+    return _finalize_job(
+        session,
+        job.id,
+        scanned_count=scanned_count,
+        success_count=success_count,
+        warning_count=warning_count,
+        failed_count=failed_count,
+        status="success" if failed_count == 0 else "warning",
+    )
 
 
 def main() -> int:

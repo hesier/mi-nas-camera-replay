@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 from app.services.media_probe import ProbeResult
 from app.tasks.index_videos import run_index_job
@@ -466,3 +468,137 @@ def test_run_index_job_target_day_includes_changed_existing_file_that_new_range_
     assert summary is not None
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 300.0
+
+
+def test_run_index_job_marks_job_failed_when_unexpected_error_occurs(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=600.0, start_time_sec=0.0),
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.rebuild_impacted_days",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_index_job(sqlite_session, root=tmp_path)
+
+    stored_job = sqlite_session.query(IndexJob).one()
+    assert stored_job.status == "failed"
+    assert stored_job.finished_at is not None
+
+
+def test_run_index_job_does_not_count_unchanged_invalid_file_as_success(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    sqlite_session.add(
+        VideoFile(
+            file_path=str(file_path),
+            file_name=file_name,
+            file_size=1,
+            file_mtime=1711209600,
+            name_start_at="2026-03-17T00:00:00+08:00",
+            name_end_at="2026-03-17T00:10:00+08:00",
+            probe_duration_sec=None,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=None,
+            actual_start_at=None,
+            actual_end_at=None,
+            time_source="filename",
+            status="invalid",
+            issue_flags='["invalid_media"]',
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+
+    job = run_index_job(sqlite_session, root=tmp_path)
+
+    assert job.scanned_count == 1
+    assert job.success_count == 0
+    assert job.failed_count == 1
+    assert job.status == "warning"
+
+
+def test_run_index_job_target_day_skips_obviously_old_new_file_candidates(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260316235500_20260316235900.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711151700,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: (_ for _ in ()).throw(AssertionError("明显过旧文件不应进入探测")),
+    )
+
+    job = run_index_job(sqlite_session, root=tmp_path, target_day="2026-03-18")
+
+    assert job.scanned_count == 0
+    assert sqlite_session.query(VideoFile).count() == 0
