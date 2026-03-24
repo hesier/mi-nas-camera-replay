@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
+from app.services.media_probe import ProbeResult
+from app.tasks.index_videos import run_index_job
+
+
+def test_run_index_job_persists_job_and_day_summary(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=600.0, start_time_sec=0.0),
+    )
+
+    job = run_index_job(sqlite_session, root=tmp_path)
+
+    stored_job = sqlite_session.get(IndexJob, job.id)
+    assert stored_job is not None
+    assert stored_job.job_day == "all"
+    assert stored_job.status == "success"
+    assert stored_job.scanned_count == 1
+    assert stored_job.success_count == 1
+    assert stored_job.warning_count == 0
+    assert stored_job.failed_count == 0
+    assert stored_job.finished_at is not None
+
+    stored_file = sqlite_session.query(VideoFile).one()
+    assert stored_file.file_path == str(file_path)
+    assert stored_file.actual_end_at == "2026-03-17T00:10:00+08:00"
+
+    stored_segments = sqlite_session.query(TimelineSegment).all()
+    assert len(stored_segments) == 1
+    assert stored_segments[0].day == "2026-03-17"
+
+    summary = sqlite_session.get(DaySummary, "2026-03-17")
+    assert summary is not None
+    assert summary.total_segment_count == 1
+    assert summary.total_recorded_sec == 600.0
+    assert summary.total_gap_sec == 0.0
+    assert summary.has_warning is False
+
+
+def test_run_index_job_skips_reprobe_when_file_unchanged(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+    sqlite_session.add(
+        VideoFile(
+            file_path=str(file_path),
+            file_name=file_name,
+            file_size=1,
+            file_mtime=1711209600,
+            name_start_at="2026-03-17T00:00:00+08:00",
+            name_end_at="2026-03-17T00:10:00+08:00",
+            probe_duration_sec=600.0,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=0.0,
+            actual_start_at="2026-03-17T00:00:00+08:00",
+            actual_end_at="2026-03-17T00:10:00+08:00",
+            time_source="filename",
+            status="ready",
+            issue_flags="[]",
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+
+    probe_called = False
+
+    def fake_probe(_: Path):
+        nonlocal probe_called
+        probe_called = True
+        return ProbeResult(duration_sec=600.0, start_time_sec=0.0)
+
+    monkeypatch.setattr("app.tasks.index_videos.probe_media", fake_probe)
+
+    job = run_index_job(sqlite_session, root=tmp_path)
+
+    assert probe_called is False
+    assert job.scanned_count == 1
+    assert job.success_count == 1
+    assert job.failed_count == 0

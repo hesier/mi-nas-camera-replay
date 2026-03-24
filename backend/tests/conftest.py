@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -27,3 +28,38 @@ def sqlite_session():
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture
+def existing_record():
+    return VideoFile(
+        file_path="/videos/00_20260317000000_20260317001000.mp4",
+        file_name="00_20260317000000_20260317001000.mp4",
+        file_size=123,
+        file_mtime=1711234567,
+        name_start_at="2026-03-17T00:00:00+08:00",
+        name_end_at="2026-03-17T00:10:00+08:00",
+        probe_duration_sec=600.0,
+        probe_video_codec=None,
+        probe_audio_codec=None,
+        probe_width=None,
+        probe_height=None,
+        probe_start_time_sec=0.0,
+        actual_start_at="2026-03-17T00:00:00+08:00",
+        actual_end_at="2026-03-17T00:10:00+08:00",
+        time_source="filename",
+        status="ready",
+        issue_flags="[]",
+        created_at="2026-03-24T00:00:00+08:00",
+        updated_at="2026-03-24T00:00:00+08:00",
+    )
+
+
+@pytest.fixture
+def incoming_file():
+    return SimpleNamespace(
+        path=Path("/videos/00_20260317000000_20260317001000.mp4"),
+        name="00_20260317000000_20260317001000.mp4",
+        file_size=123,
+        file_mtime=1711234567,
+    )
