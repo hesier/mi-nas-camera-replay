@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,7 +21,12 @@ def _import_models() -> None:
 @pytest.fixture
 def sqlite_session():
     _import_models()
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = SessionLocal()
@@ -63,3 +69,23 @@ def incoming_file():
         file_size=123,
         file_mtime=1711234567,
     )
+
+
+@pytest.fixture
+def client(sqlite_session):
+    from fastapi.testclient import TestClient
+
+    from app.core.db import get_db
+    from app.main import create_app
+
+    app = create_app()
+
+    def override_get_db():
+        yield sqlite_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()

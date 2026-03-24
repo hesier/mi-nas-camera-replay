@@ -1,0 +1,101 @@
+from datetime import datetime
+
+from app.models import TimelineSegment, VideoFile
+from app.services.locate_service import locate_at
+
+
+def _make_video_file(file_id: int, issue_flags: str = "[]") -> VideoFile:
+    return VideoFile(
+        id=file_id,
+        file_path=f"/videos/{file_id}.mp4",
+        file_name=f"{file_id}.mp4",
+        file_size=1,
+        file_mtime=1711209600,
+        name_start_at="2026-03-18T00:00:00+08:00",
+        name_end_at="2026-03-18T00:10:00+08:00",
+        probe_duration_sec=600.0,
+        probe_video_codec=None,
+        probe_audio_codec=None,
+        probe_width=None,
+        probe_height=None,
+        probe_start_time_sec=0.0,
+        actual_start_at="2026-03-18T00:00:00+08:00",
+        actual_end_at="2026-03-18T00:10:00+08:00",
+        time_source="filename",
+        status="ready",
+        issue_flags=issue_flags,
+        created_at="2026-03-24T00:00:00+08:00",
+        updated_at="2026-03-24T00:00:00+08:00",
+    )
+
+
+def test_locate_at_returns_found_segment_with_seek_offset(sqlite_session):
+    sqlite_session.add(_make_video_file(51, '["duration_mismatch"]'))
+    sqlite_session.add(
+        TimelineSegment(
+            id=501,
+            file_id=51,
+            day="2026-03-18",
+            segment_start_at="2026-03-18T00:00:00+08:00",
+            segment_end_at="2026-03-18T00:01:00+08:00",
+            duration_sec=60.0,
+            playback_url="/api/videos/51/stream",
+            file_offset_sec=30.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.commit()
+
+    result = locate_at(sqlite_session, datetime.fromisoformat("2026-03-18T00:00:15"))
+
+    assert result["found"] is True
+    assert result["seekOffsetSec"] == 45.0
+    assert result["segment"]["id"] == 501
+    assert result["segment"]["issueFlags"] == ["duration_mismatch"]
+
+
+def test_locate_at_returns_gap_and_next_segment(sqlite_session):
+    sqlite_session.add_all([_make_video_file(61), _make_video_file(62)])
+    sqlite_session.add_all(
+        [
+            TimelineSegment(
+                id=601,
+                file_id=61,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:05:00+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/61/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=None,
+                next_gap_sec=40.0,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=602,
+                file_id=62,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:05:40+08:00",
+                segment_end_at="2026-03-18T00:10:40+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/62/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=40.0,
+                next_gap_sec=None,
+                status="ready",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    result = locate_at(sqlite_session, datetime.fromisoformat("2026-03-18T00:05:20"))
+
+    assert result["found"] is False
+    assert result["gap"] == {
+        "startAt": "2026-03-18T00:05:00+08:00",
+        "endAt": "2026-03-18T00:05:40+08:00",
+    }
+    assert result["nextSegment"]["id"] == 602
+    assert result["nextSegment"]["issueFlags"] == ["gap_before"]
