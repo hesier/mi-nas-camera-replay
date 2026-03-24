@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     timezone: str = "Asia/Shanghai"
     sqlite_url: str = "sqlite:///./replay.db"
-    video_root: str
+    video_root: str = "./videos"
 
 
 @lru_cache

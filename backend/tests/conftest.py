@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -7,7 +6,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-os.environ.setdefault("VIDEO_ROOT", "./videos")
 
 from app.core.db import Base
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile

@@ -6,8 +6,7 @@ from app.core.db import Base
 class DaySummary(Base):
     __tablename__ = "day_summaries"
 
-    id = Column(Integer, primary_key=True)
-    day = Column(String, unique=True, nullable=False)
+    day = Column(String, primary_key=True)
     first_segment_at = Column(Text, nullable=True)
     last_segment_at = Column(Text, nullable=True)
     total_segment_count = Column(Integer, nullable=False, default=0)
