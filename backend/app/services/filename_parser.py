@@ -17,7 +17,10 @@ class ParsedFilename:
 
 
 def _parse_timestamp(value: str) -> datetime:
-    return datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=_SHANGHAI_ZONE)
+    try:
+        return datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=_SHANGHAI_ZONE)
+    except ValueError as exc:
+        raise ValueError("invalid camera filename") from exc
 
 
 def parse_camera_filename(file_name: str) -> ParsedFilename:
@@ -27,4 +30,6 @@ def parse_camera_filename(file_name: str) -> ParsedFilename:
 
     start_at = _parse_timestamp(match.group(1))
     end_at = _parse_timestamp(match.group(2))
+    if start_at > end_at:
+        raise ValueError("invalid camera filename")
     return ParsedFilename(name_start_at=start_at, name_end_at=end_at)
