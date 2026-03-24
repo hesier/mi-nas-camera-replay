@@ -61,7 +61,7 @@ def probe_media(file_path: str) -> ProbeResult:
             text=True,
             timeout=FFPROBE_TIMEOUT_SEC,
         )
-    except subprocess.SubprocessError as exc:
+    except (subprocess.SubprocessError, OSError) as exc:
         raise ValueError("ffprobe execution failed") from exc
     try:
         payload = json.loads(completed.stdout)

@@ -104,3 +104,13 @@ def test_probe_media_subprocess_error(monkeypatch: pytest.MonkeyPatch):
 
     with pytest.raises(ValueError):
         probe_media("/tmp/demo.mp4")
+
+
+def test_probe_media_file_not_found_error(monkeypatch: pytest.MonkeyPatch):
+    def fake_run(_: list[str], **__: Any) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError("ffprobe not found")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(ValueError, match="ffprobe execution failed"):
+        probe_media("/tmp/demo.mp4")
