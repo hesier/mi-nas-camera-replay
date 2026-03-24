@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -49,6 +49,29 @@ def _parse_filename_or_none(file_name: str) -> ParsedFilename | None:
         return parse_camera_filename(file_name)
     except ValueError:
         return None
+
+
+def _parse_day(value: str) -> date:
+    return date.fromisoformat(value)
+
+
+def _should_scan_for_target_day(
+    session: Session,
+    incoming_file,
+    target_day: str,
+) -> bool:
+    existing = (
+        session.query(VideoFile)
+        .filter(VideoFile.file_path == str(incoming_file.path))
+        .one_or_none()
+    )
+    if existing is not None:
+        return target_day in collect_impacted_days(existing)
+
+    parsed = _parse_filename_or_none(incoming_file.name)
+    if parsed is None:
+        return False
+    return parsed.name_start_at.date() <= _parse_day(target_day)
 
 
 def _build_video_file_payload(
@@ -181,18 +204,11 @@ def run_index_job(
 
     scanned_files = scan_video_files(root or get_settings().video_root)
     if target_day is not None:
-        filtered_files = []
-        for incoming_file in scanned_files:
-            parsed = _parse_filename_or_none(incoming_file.name)
-            if parsed is None:
-                continue
-            day_span = {
-                parsed.name_start_at.date().isoformat(),
-                parsed.name_end_at.date().isoformat(),
-            }
-            if target_day in day_span:
-                filtered_files.append(incoming_file)
-        scanned_files = filtered_files
+        scanned_files = [
+            incoming_file
+            for incoming_file in scanned_files
+            if _should_scan_for_target_day(session, incoming_file, target_day)
+        ]
 
     scanned_count = 0
     success_count = 0

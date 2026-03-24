@@ -326,3 +326,58 @@ def test_run_index_job_marks_duration_mismatch_as_warning(
     assert job.warning_count == 1
     assert job.success_count == 0
     assert job.failed_count == 0
+
+
+def test_run_index_job_target_day_includes_new_file_that_actual_range_crosses_next_day(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    file_name = "00_20260317235500_20260317235900.mp4"
+    file_path = tmp_path / file_name
+    file_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda _: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711238100,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=600.0, start_time_sec=0.0),
+    )
+
+    job = run_index_job(sqlite_session, root=tmp_path, target_day="2026-03-18")
+
+    assert job.scanned_count == 1
+    assert job.warning_count == 1
+    assert job.failed_count == 0
+
+    stored_file = sqlite_session.query(VideoFile).one()
+    assert stored_file.actual_start_at == "2026-03-17T23:55:00+08:00"
+    assert stored_file.actual_end_at == "2026-03-18T00:05:00+08:00"
+
+    next_day_segments = (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.day == "2026-03-18")
+        .all()
+    )
+    assert len(next_day_segments) == 1
+    assert next_day_segments[0].segment_start_at == "2026-03-18T00:00:00+08:00"
+    assert next_day_segments[0].segment_end_at == "2026-03-18T00:05:00+08:00"
+
+    summary = sqlite_session.get(DaySummary, "2026-03-18")
+    assert summary is not None
+    assert summary.total_segment_count == 1
+    assert summary.total_recorded_sec == 300.0
+    assert summary.has_warning is True
