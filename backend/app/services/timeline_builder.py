@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from typing import Iterable
@@ -148,6 +149,21 @@ def split_file_ranges_by_day(source_file: TimelineSourceFile) -> list[TimelineDa
         )
 
     return results
+
+
+def build_timelines_by_day(
+    source_files: Iterable[TimelineSourceFile],
+) -> dict[str, TimelineBuildResult]:
+    grouped_ranges: dict[str, list[TimelineDayRange]] = defaultdict(list)
+
+    for source_file in source_files:
+        for day_range in split_file_ranges_by_day(source_file):
+            grouped_ranges[day_range.day].append(day_range)
+
+    return {
+        day: build_day_timeline(grouped_ranges[day])
+        for day in sorted(grouped_ranges.keys())
+    }
 
 
 def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildResult:

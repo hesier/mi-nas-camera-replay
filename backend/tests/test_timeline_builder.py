@@ -4,6 +4,7 @@ from app.services.filename_parser import parse_camera_filename
 from app.services.timeline_builder import (
     TimelineSourceFile,
     build_day_timeline,
+    build_timelines_by_day,
     split_file_ranges_by_day,
 )
 
@@ -110,6 +111,36 @@ def test_build_timeline_marks_large_gap_and_duration_mismatch_as_warning():
     assert result.summary.has_warning is True
 
 
+def test_build_timeline_records_regular_gap_without_gap_warning():
+    file_records = [
+        _make_source_file(
+            file_id=1,
+            file_name="00_20260317000000_20260317000500.mp4",
+            probe_duration_sec=300.0,
+        ),
+        _make_source_file(
+            file_id=2,
+            file_name="00_20260317000520_20260317001020.mp4",
+            probe_duration_sec=300.0,
+        ),
+    ]
+
+    day_ranges = []
+    for file_record in file_records:
+        day_ranges.extend(split_file_ranges_by_day(file_record))
+
+    result = build_day_timeline(day_ranges)
+
+    assert len(result.gaps) == 1
+    assert result.gaps[0].gap_sec == 20.0
+    assert result.segments[0].next_gap_sec == 20.0
+    assert result.segments[1].prev_gap_sec == 20.0
+    assert result.segments[1].issue_flags == []
+    assert result.segments[1].status == "ready"
+    assert result.summary.total_gap_sec == 20.0
+    assert result.summary.has_warning is False
+
+
 def test_build_timeline_marks_overlap_as_warning():
     file_records = [
         _make_source_file(
@@ -137,3 +168,42 @@ def test_build_timeline_marks_overlap_as_warning():
     assert result.summary.total_gap_sec == 0.0
     assert result.summary.total_recorded_sec == 600.0
     assert result.summary.has_warning is True
+
+
+def test_build_timelines_by_day_groups_split_ranges_into_daily_results():
+    file_records = [
+        _make_source_file(
+            file_id=10,
+            file_name="00_20260317235930_20260318000100.mp4",
+            probe_duration_sec=90.0,
+        ),
+        _make_source_file(
+            file_id=11,
+            file_name="00_20260318000101_20260318000601.mp4",
+            probe_duration_sec=300.0,
+        ),
+    ]
+
+    result = build_timelines_by_day(file_records)
+
+    assert list(result.keys()) == ["2026-03-17", "2026-03-18"]
+
+    day_1 = result["2026-03-17"]
+    assert len(day_1.segments) == 1
+    assert day_1.gaps == []
+    assert day_1.summary.first_segment_at.isoformat() == "2026-03-17T23:59:30+08:00"
+    assert day_1.summary.last_segment_at.isoformat() == "2026-03-18T00:00:00+08:00"
+    assert day_1.summary.total_recorded_sec == 30.0
+    assert day_1.summary.total_gap_sec == 0.0
+    assert day_1.summary.total_segment_count == 1
+
+    day_2 = result["2026-03-18"]
+    assert len(day_2.segments) == 2
+    assert day_2.gaps == []
+    assert day_2.segments[0].file_offset_sec == 30.0
+    assert day_2.segments[1].prev_gap_sec == 0.0
+    assert day_2.summary.first_segment_at.isoformat() == "2026-03-18T00:00:00+08:00"
+    assert day_2.summary.last_segment_at.isoformat() == "2026-03-18T00:06:01+08:00"
+    assert day_2.summary.total_recorded_sec == 360.0
+    assert day_2.summary.total_gap_sec == 0.0
+    assert day_2.summary.total_segment_count == 2
