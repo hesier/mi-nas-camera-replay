@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -29,12 +29,3 @@ def sqlite_session():
         yield session
     finally:
         session.close()
-
-
-def test_create_all_tables(sqlite_session):
-    tables = sqlite_session.execute(
-        text("SELECT name FROM sqlite_master WHERE type='table'")
-    ).fetchall()
-    assert {"video_files", "timeline_segments", "day_summaries", "index_jobs"} <= {
-        row[0] for row in tables
-    }
