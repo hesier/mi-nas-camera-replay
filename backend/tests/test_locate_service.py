@@ -135,3 +135,89 @@ def test_locate_at_treats_equivalent_instants_with_different_offsets_as_same(
     assert shanghai_result["found"] is True
     assert shanghai_result["segment"]["id"] == 701
     assert shanghai_result["seekOffsetSec"] == 25.0
+
+
+def test_locate_at_treats_small_continuous_gap_as_next_segment(sqlite_session):
+    sqlite_session.add_all([_make_video_file(81), _make_video_file(82)])
+    sqlite_session.add_all(
+        [
+            TimelineSegment(
+                id=801,
+                file_id=81,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:05:00+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/81/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=None,
+                next_gap_sec=1.5,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=802,
+                file_id=82,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:05:01.500000+08:00",
+                segment_end_at="2026-03-18T00:10:01.500000+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/82/stream",
+                file_offset_sec=12.0,
+                prev_gap_sec=0.0,
+                next_gap_sec=None,
+                status="ready",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    result = locate_at(sqlite_session, datetime.fromisoformat("2026-03-18T00:05:00.800000"))
+
+    assert result["found"] is True
+    assert result["segment"]["id"] == 802
+    assert result["seekOffsetSec"] == 12.0
+    assert result["gap"] is None
+    assert result["nextSegment"] is None
+
+
+def test_locate_at_keeps_subsecond_precision_when_time_is_inside_segment(sqlite_session):
+    sqlite_session.add_all([_make_video_file(91), _make_video_file(92)])
+    sqlite_session.add_all(
+        [
+            TimelineSegment(
+                id=901,
+                file_id=91,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:05:00+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/91/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=None,
+                next_gap_sec=0.5,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=902,
+                file_id=92,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:05:00.500000+08:00",
+                segment_end_at="2026-03-18T00:10:00.500000+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/92/stream",
+                file_offset_sec=12.0,
+                prev_gap_sec=0.0,
+                next_gap_sec=None,
+                status="ready",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    result = locate_at(sqlite_session, datetime.fromisoformat("2026-03-18T00:05:00.800000"))
+
+    assert result["found"] is True
+    assert result["segment"]["id"] == 902
+    assert result["seekOffsetSec"] == 12.3
+    assert result["gap"] is None
+    assert result["nextSegment"] is None

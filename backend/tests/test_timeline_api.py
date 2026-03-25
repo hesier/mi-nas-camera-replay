@@ -126,3 +126,56 @@ def test_get_timeline_returns_404_when_day_missing(client):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "timeline not found"}
+
+
+def test_get_timeline_omits_small_continuous_gap_from_gaps(client, sqlite_session):
+    sqlite_session.add_all(
+        [
+            _make_video_file(file_id=21, status="ready", issue_flags="[]"),
+            _make_video_file(file_id=22, status="ready", issue_flags="[]"),
+            TimelineSegment(
+                id=211,
+                file_id=21,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:05:00+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/21/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=None,
+                next_gap_sec=0.0,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=212,
+                file_id=22,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:05:01.500000+08:00",
+                segment_end_at="2026-03-18T00:10:01.500000+08:00",
+                duration_sec=300.0,
+                playback_url="/api/videos/22/stream",
+                file_offset_sec=0.0,
+                prev_gap_sec=0.0,
+                next_gap_sec=None,
+                status="ready",
+            ),
+            DaySummary(
+                day="2026-03-18",
+                first_segment_at="2026-03-18T00:00:00+08:00",
+                last_segment_at="2026-03-18T00:10:01.500000+08:00",
+                total_segment_count=2,
+                total_recorded_sec=600.0,
+                total_gap_sec=0.0,
+                has_warning=False,
+                updated_at="2026-03-24T00:00:00+08:00",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    response = client.get("/api/timeline", params={"day": "2026-03-18"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["gapSeconds"] == 0.0
+    assert payload["gaps"] == []

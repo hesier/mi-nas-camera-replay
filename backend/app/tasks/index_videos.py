@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from threading import Thread
 
 from sqlalchemy.orm import Session
 
@@ -20,6 +23,8 @@ from app.tasks.rebuild_day import (
     rebuild_day_timeline,
     rebuild_impacted_days,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -230,13 +235,12 @@ def _finalize_job(
     return job
 
 
-def run_index_job(
+def create_index_job(
     session: Session,
-    root: str | Path | None = None,
-    target_day: str | None = None,
+    *,
+    target_day: str | None,
 ) -> IndexJob:
     Base.metadata.create_all(bind=session.get_bind())
-
     job = IndexJob(
         job_day=target_day or "all",
         status="running",
@@ -249,6 +253,17 @@ def run_index_job(
     session.add(job)
     session.commit()
     session.refresh(job)
+    return job
+
+
+def _run_index_job_with_existing_job(
+    session: Session,
+    job_id: int,
+    *,
+    root: str | Path | None = None,
+    target_day: str | None = None,
+) -> IndexJob:
+    Base.metadata.create_all(bind=session.get_bind())
 
     scanned_count = 0
     success_count = 0
@@ -305,7 +320,7 @@ def run_index_job(
         session.rollback()
         _finalize_job(
             session,
-            job.id,
+            job_id,
             scanned_count=scanned_count,
             success_count=success_count,
             warning_count=warning_count,
@@ -316,13 +331,93 @@ def run_index_job(
 
     return _finalize_job(
         session,
-        job.id,
+        job_id,
         scanned_count=scanned_count,
         success_count=success_count,
         warning_count=warning_count,
         failed_count=failed_count,
         status="success" if failed_count == 0 else "warning",
     )
+
+
+def run_index_job(
+    session: Session,
+    root: str | Path | None = None,
+    target_day: str | None = None,
+) -> IndexJob:
+    job = create_index_job(session, target_day=target_day)
+    return _run_index_job_with_existing_job(
+        session,
+        job.id,
+        root=root,
+        target_day=target_day,
+    )
+
+
+def _start_background_thread(
+    target,
+    *args,
+) -> Thread:
+    thread = Thread(target=target, args=args, daemon=True)
+    thread.start()
+    return thread
+
+
+def _run_index_job_in_background(
+    job_id: int,
+    root: str | Path | None,
+    target_day: str | None,
+    session_factory: Callable[[], Session],
+) -> None:
+    session = session_factory()
+    try:
+        _run_index_job_with_existing_job(
+            session,
+            job_id,
+            root=root,
+            target_day=target_day,
+        )
+    except Exception:
+        logger.exception("后台索引任务执行失败", extra={"job_id": job_id})
+    finally:
+        session.close()
+
+
+def start_background_index_job(
+    job_id: int,
+    *,
+    root: str | Path | None = None,
+    target_day: str | None = None,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> Thread:
+    return _start_background_thread(
+        _run_index_job_in_background,
+        job_id,
+        root,
+        target_day,
+        session_factory,
+    )
+
+
+def enqueue_index_job(
+    *,
+    root: str | Path | None = None,
+    target_day: str | None = None,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> IndexJob:
+    session = session_factory()
+    try:
+        job = create_index_job(session, target_day=target_day)
+    finally:
+        session.close()
+
+    start_background_index_job(
+        job.id,
+        root=root,
+        target_day=target_day,
+        session_factory=session_factory,
+    )
+    return job
 
 
 def main() -> int:

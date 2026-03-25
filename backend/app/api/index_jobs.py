@@ -2,11 +2,11 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.db import get_db
 from app.schemas.locate import RebuildResponse
-from app.tasks.index_videos import run_index_job
+from app.tasks.index_videos import enqueue_index_job
 
 router = APIRouter()
 
@@ -17,7 +17,16 @@ def rebuild_index(
     session: Session = Depends(get_db),
 ) -> RebuildResponse:
     target_day = day.isoformat() if day is not None else None
-    job = run_index_job(session=session, target_day=target_day)
+    session_factory = sessionmaker(
+        bind=session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+    job = enqueue_index_job(
+        target_day=target_day,
+        session_factory=session_factory,
+    )
     return RebuildResponse(
         accepted=True,
         jobId=job.id,

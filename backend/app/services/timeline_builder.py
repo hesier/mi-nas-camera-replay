@@ -12,6 +12,16 @@ WARNING_GAP_SEC = 30.0
 DURATION_MISMATCH_SEC = 2.0
 
 
+def normalize_continuous_gap(gap_sec: float) -> float:
+    if 0 <= gap_sec <= CONTINUOUS_GAP_SEC:
+        return 0.0
+    return gap_sec
+
+
+def is_effective_gap(gap_sec: float) -> bool:
+    return normalize_continuous_gap(gap_sec) > 0
+
+
 @dataclass(frozen=True)
 class TimelineSourceFile:
     file_id: int
@@ -207,9 +217,9 @@ def build_day_timeline(day_ranges: Iterable[TimelineDayRange]) -> TimelineBuildR
         else:
             gap_sec = (item.segment_start_at - covered_until).total_seconds()
 
-            if 0 <= gap_sec <= CONTINUOUS_GAP_SEC:
-                gap_sec = 0.0
-            elif gap_sec > CONTINUOUS_GAP_SEC:
+            gap_sec = normalize_continuous_gap(gap_sec)
+
+            if gap_sec > 0:
                 total_gap_sec += gap_sec
                 gaps.append(
                     TimelineGap(

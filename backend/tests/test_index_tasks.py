@@ -7,7 +7,7 @@ import pytest
 
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 from app.services.media_probe import ProbeResult
-from app.tasks.index_videos import run_index_job
+from app.tasks.index_videos import enqueue_index_job, run_index_job
 
 
 def test_run_index_job_persists_job_and_day_summary(
@@ -66,6 +66,45 @@ def test_run_index_job_persists_job_and_day_summary(
     assert summary.total_recorded_sec == 600.0
     assert summary.total_gap_sec == 0.0
     assert summary.has_warning is False
+
+
+def test_enqueue_index_job_creates_running_job_and_schedules_background_work(
+    sqlite_session,
+    monkeypatch,
+):
+    scheduled = {}
+
+    def fake_start_background_thread(target, *args):
+        scheduled["target"] = target
+        scheduled["args"] = args
+        return None
+
+    session_factory = lambda: sqlite_session
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos._start_background_thread",
+        fake_start_background_thread,
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos._run_index_job_with_existing_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("enqueue 不应同步执行完整索引任务")
+        ),
+    )
+
+    job = enqueue_index_job(
+        target_day="2026-03-18",
+        session_factory=session_factory,
+    )
+
+    stored_job = sqlite_session.get(IndexJob, job.id)
+    assert stored_job is not None
+    assert stored_job.status == "running"
+    assert stored_job.job_day == "2026-03-18"
+    assert stored_job.finished_at is None
+    assert scheduled["target"].__name__ == "_run_index_job_in_background"
+    assert scheduled["args"][0] == job.id
+    assert scheduled["args"][2] == "2026-03-18"
 
 
 def test_run_index_job_skips_reprobe_when_file_unchanged(

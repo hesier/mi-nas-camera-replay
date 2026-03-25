@@ -15,7 +15,7 @@ from app.schemas.timeline import (
     TimelineSegmentItem,
     TimelineSummary,
 )
-from app.services.timeline_builder import WARNING_GAP_SEC
+from app.services.timeline_builder import WARNING_GAP_SEC, is_effective_gap
 
 router = APIRouter()
 
@@ -91,7 +91,7 @@ def get_timeline(
             datetime.fromisoformat(current_segment.segment_start_at)
             - datetime.fromisoformat(previous_segment.segment_end_at)
         ).total_seconds()
-        if gap_sec > 0:
+        if is_effective_gap(gap_sec):
             gaps.append(
                 TimelineGapItem(
                     startAt=previous_segment.segment_end_at,

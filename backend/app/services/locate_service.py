@@ -8,7 +8,10 @@ from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 
 from app.models import TimelineSegment, VideoFile
-from app.services.timeline_builder import WARNING_GAP_SEC
+from app.services.timeline_builder import (
+    WARNING_GAP_SEC,
+    is_effective_gap,
+)
 
 
 def _normalize_datetime(value: datetime, timezone_name: str) -> datetime:
@@ -67,7 +70,7 @@ def locate_at(
     timezone_name: str = "Asia/Shanghai",
 ) -> dict[str, object]:
     normalized_at = _normalize_datetime(at, timezone_name)
-    at_iso = normalized_at.isoformat()
+    at_iso = normalized_at.isoformat(timespec="microseconds")
 
     current = (
         _segment_query(session)
@@ -102,6 +105,21 @@ def locate_at(
         .order_by(asc(TimelineSegment.segment_start_at), asc(TimelineSegment.id))
         .first()
     )
+
+    if previous is not None and next_segment is not None:
+        gap_sec = (
+            datetime.fromisoformat(next_segment[0].segment_start_at)
+            - datetime.fromisoformat(previous[0].segment_end_at)
+        ).total_seconds()
+        if not is_effective_gap(gap_sec):
+            segment, file_record = next_segment
+            return {
+                "found": True,
+                "segment": _build_segment_payload(segment, file_record),
+                "seekOffsetSec": float(segment.file_offset_sec),
+                "gap": None,
+                "nextSegment": None,
+            }
 
     gap_start_at = previous[0].segment_end_at if previous is not None else at_iso
     gap_end_at = next_segment[0].segment_start_at if next_segment is not None else at_iso
