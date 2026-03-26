@@ -5,6 +5,7 @@ def test_get_days_returns_summaries_in_desc_order(client, sqlite_session):
     sqlite_session.add_all(
         [
             DaySummary(
+                camera_no=1,
                 day="2026-03-16",
                 first_segment_at="2026-03-16T00:05:00+08:00",
                 last_segment_at="2026-03-16T23:55:00+08:00",
@@ -15,6 +16,7 @@ def test_get_days_returns_summaries_in_desc_order(client, sqlite_session):
                 updated_at="2026-03-24T00:00:00+08:00",
             ),
             DaySummary(
+                camera_no=1,
                 day="2026-03-17",
                 first_segment_at="2026-03-17T00:00:00+08:00",
                 last_segment_at="2026-03-17T23:59:59+08:00",

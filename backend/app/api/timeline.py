@@ -65,11 +65,17 @@ def get_timeline(
     session: Session = Depends(get_db),
 ) -> TimelineResponse:
     day_value = day.isoformat()
-    summary = session.get(DaySummary, day_value)
+    camera_no = 1
+    summary = (
+        session.query(DaySummary)
+        .filter(DaySummary.camera_no == camera_no, DaySummary.day == day_value)
+        .one_or_none()
+    )
     rows = (
         session.query(TimelineSegment, VideoFile)
         .join(VideoFile, VideoFile.id == TimelineSegment.file_id)
-        .filter(TimelineSegment.day == day_value)
+        .filter(TimelineSegment.camera_no == camera_no, TimelineSegment.day == day_value)
+        .filter(VideoFile.camera_no == camera_no)
         .order_by(
             TimelineSegment.segment_start_at.asc(),
             TimelineSegment.segment_end_at.asc(),

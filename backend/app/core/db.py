@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
@@ -62,6 +63,26 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
     如果用户沿用旧版 replay.db，会产生“表存在但缺列/主键不一致”的隐性错误。
     这里选择在启动与 CLI 入口提前失败，并给出明确的中文提示。
     """
+
+    def _format_sqlite_recovery_hint() -> str:
+        # sqlite_url 可配置，报错里不能硬编码 replay.db
+        url = engine.url
+        if url.get_backend_name() != "sqlite":
+            return "请删除当前数据库文件后重试，或调整 sqlite_url 指向一个新库。"
+
+        db_path = url.database
+        if not db_path or db_path == ":memory:":
+            return "请调整 sqlite_url 指向一个新库后重试。"
+
+        name = Path(db_path).name
+        return (
+            f"请删除当前 SQLite 数据库文件（{name}）后重试，"
+            "或调整 sqlite_url 指向一个新库。"
+        )
+
+    def _raise_incompatible(detail: str) -> None:
+        raise RuntimeError(f"{detail}{_format_sqlite_recovery_hint()}")
+
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
 
@@ -72,9 +93,8 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
     if "video_files" in table_names:
         video_cols = {col["name"] for col in inspector.get_columns("video_files")}
         if "camera_no" not in video_cols:
-            raise RuntimeError(
-                "检测到旧版数据库结构：video_files 缺少 camera_no 列。"
-                "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+            _raise_incompatible(
+                "检测到旧版数据库结构：video_files 缺少 camera_no 列。该版本与当前程序不兼容。"
             )
 
     if "timeline_segments" in table_names:
@@ -82,9 +102,8 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
             col["name"] for col in inspector.get_columns("timeline_segments")
         }
         if "camera_no" not in segment_cols:
-            raise RuntimeError(
-                "检测到旧版数据库结构：timeline_segments 缺少 camera_no 列。"
-                "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+            _raise_incompatible(
+                "检测到旧版数据库结构：timeline_segments 缺少 camera_no 列。该版本与当前程序不兼容。"
             )
 
     if "day_summaries" not in table_names:
@@ -98,18 +117,17 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
 
     # 旧版 day_summaries: day TEXT PRIMARY KEY
     if pk_cols == ["day"] and "id" not in columns:
-        raise RuntimeError(
-            "检测到旧版数据库结构：day_summaries(day TEXT PRIMARY KEY)。"
-            "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+        _raise_incompatible(
+            "检测到旧版数据库结构：day_summaries(day TEXT PRIMARY KEY)。该版本与当前程序不兼容。"
         )
 
     required = {"id", "camera_no", "day", "updated_at"}
     missing = required - columns
     if missing:
         missing_text = ",".join(sorted(missing))
-        raise RuntimeError(
+        _raise_incompatible(
             "检测到数据库结构不兼容：day_summaries 缺少必要列（"
-            f"{missing_text}）。请删除 replay.db 后重新启动。"
+            f"{missing_text}）。"
         )
 
     # 校验 (camera_no, day) 的唯一约束：不同 SQLAlchemy/SQLite 版本下反射行为可能不同，
@@ -131,7 +149,6 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
             if col_names == {"camera_no", "day"}:
                 return
 
-    raise RuntimeError(
+    _raise_incompatible(
         "检测到数据库结构不兼容：day_summaries 缺少 (camera_no, day) 的唯一约束。"
-        "请删除 replay.db 后重新启动。"
     )

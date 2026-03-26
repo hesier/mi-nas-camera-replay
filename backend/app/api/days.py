@@ -10,7 +10,13 @@ router = APIRouter()
 
 @router.get("/api/days", response_model=list[DayItem])
 def list_days(session: Session = Depends(get_db)) -> list[DayItem]:
-    rows = session.query(DaySummary).order_by(DaySummary.day.desc()).all()
+    camera_no = 1
+    rows = (
+        session.query(DaySummary)
+        .filter(DaySummary.camera_no == camera_no)
+        .order_by(DaySummary.day.desc())
+        .all()
+    )
     return [
         DayItem(
             day=row.day,

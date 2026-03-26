@@ -4,6 +4,7 @@ from app.models import DaySummary, TimelineSegment, VideoFile
 def _make_video_file(*, file_id: int, status: str, issue_flags: str) -> VideoFile:
     return VideoFile(
         id=file_id,
+        camera_no=1,
         file_path=f"/videos/{file_id}.mp4",
         file_name=f"{file_id}.mp4",
         file_size=1,
@@ -38,6 +39,7 @@ def test_get_timeline_returns_summary_segments_and_gaps(client, sqlite_session):
             TimelineSegment(
                 id=201,
                 file_id=11,
+                camera_no=1,
                 day="2026-03-17",
                 segment_start_at="2026-03-17T00:00:00+08:00",
                 segment_end_at="2026-03-17T00:05:00+08:00",
@@ -51,6 +53,7 @@ def test_get_timeline_returns_summary_segments_and_gaps(client, sqlite_session):
             TimelineSegment(
                 id=202,
                 file_id=12,
+                camera_no=1,
                 day="2026-03-17",
                 segment_start_at="2026-03-17T00:05:40+08:00",
                 segment_end_at="2026-03-17T00:10:45+08:00",
@@ -62,6 +65,7 @@ def test_get_timeline_returns_summary_segments_and_gaps(client, sqlite_session):
                 status="warning",
             ),
             DaySummary(
+                camera_no=1,
                 day="2026-03-17",
                 first_segment_at="2026-03-17T00:00:00+08:00",
                 last_segment_at="2026-03-17T00:10:45+08:00",
@@ -136,6 +140,7 @@ def test_get_timeline_omits_small_continuous_gap_from_gaps(client, sqlite_sessio
             TimelineSegment(
                 id=211,
                 file_id=21,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:00:00+08:00",
                 segment_end_at="2026-03-18T00:05:00+08:00",
@@ -149,6 +154,7 @@ def test_get_timeline_omits_small_continuous_gap_from_gaps(client, sqlite_sessio
             TimelineSegment(
                 id=212,
                 file_id=22,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:05:01.500000+08:00",
                 segment_end_at="2026-03-18T00:10:01.500000+08:00",
@@ -160,6 +166,7 @@ def test_get_timeline_omits_small_continuous_gap_from_gaps(client, sqlite_sessio
                 status="ready",
             ),
             DaySummary(
+                camera_no=1,
                 day="2026-03-18",
                 first_segment_at="2026-03-18T00:00:00+08:00",
                 last_segment_at="2026-03-18T00:10:01.500000+08:00",

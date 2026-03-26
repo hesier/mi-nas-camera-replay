@@ -60,7 +60,11 @@ def test_run_index_job_persists_job_and_day_summary(
     assert stored_segments[0].day == "2026-03-17"
     assert stored_segments[0].playback_url == f"/api/videos/{stored_file.id}/stream"
 
-    summary = sqlite_session.get(DaySummary, "2026-03-17")
+    summary = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .one_or_none()
+    )
     assert summary is not None
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 600.0
@@ -223,6 +227,7 @@ def test_run_index_job_target_day_rebuilds_unchanged_stale_timeline(
     )
     sqlite_session.add(
         DaySummary(
+            camera_no=1,
             day="2026-03-17",
             first_segment_at="2026-03-17T00:01:00+08:00",
             last_segment_at="2026-03-17T00:02:00+08:00",
@@ -267,7 +272,17 @@ def test_run_index_job_target_day_rebuilds_unchanged_stale_timeline(
     assert rebuilt_segments[0].segment_end_at == "2026-03-17T00:10:00+08:00"
     assert rebuilt_segments[0].playback_url == f"/api/videos/{existing.id}/stream"
 
-    summary = sqlite_session.get(DaySummary, "2026-03-17")
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .count()
+        == 1
+    )
+    summary = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .one_or_none()
+    )
     assert summary is not None
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 600.0
@@ -360,7 +375,11 @@ def test_run_index_job_marks_duration_mismatch_as_warning(
     stored_segment = sqlite_session.query(TimelineSegment).one()
     assert stored_segment.status == "warning"
 
-    summary = sqlite_session.get(DaySummary, "2026-03-17")
+    summary = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .one_or_none()
+    )
     assert summary is not None
     assert summary.has_warning is True
 
@@ -417,7 +436,11 @@ def test_run_index_job_target_day_includes_new_file_that_actual_range_crosses_ne
     assert next_day_segments[0].segment_start_at == "2026-03-18T00:00:00+08:00"
     assert next_day_segments[0].segment_end_at == "2026-03-18T00:05:00+08:00"
 
-    summary = sqlite_session.get(DaySummary, "2026-03-18")
+    summary = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-18")
+        .one_or_none()
+    )
     assert summary is not None
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 300.0
@@ -503,7 +526,11 @@ def test_run_index_job_target_day_includes_changed_existing_file_that_new_range_
     assert next_day_segments[0].segment_start_at == "2026-03-18T00:00:00+08:00"
     assert next_day_segments[0].segment_end_at == "2026-03-18T00:05:00+08:00"
 
-    summary = sqlite_session.get(DaySummary, "2026-03-18")
+    summary = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-18")
+        .one_or_none()
+    )
     assert summary is not None
     assert summary.total_segment_count == 1
     assert summary.total_recorded_sec == 300.0

@@ -81,7 +81,12 @@ def client(sqlite_session, monkeypatch, tmp_path):
     monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path))
     monkeypatch.setenv("APP_PASSWORD", "test-password")
 
-    from app.main import create_app
+    import app.main as app_main
+
+    # 避免 lifespan 中使用工作区真实 sqlite_url（例如 ./replay.db），确保测试完全 hermetic。
+    monkeypatch.setattr(app_main, "get_engine", lambda: sqlite_session.get_bind())
+
+    create_app = app_main.create_app
 
     app = create_app()
 

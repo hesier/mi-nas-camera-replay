@@ -11,6 +11,8 @@ from app.services.timeline_builder import (
     build_timelines_by_day,
 )
 
+DEFAULT_CAMERA_NO = 1
+
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat()
@@ -68,6 +70,7 @@ def _load_day_source_files(session: Session, day: str) -> list[TimelineSourceFil
     records = (
         session.query(VideoFile)
         .filter(VideoFile.status.in_(("ready", "warning")))
+        .filter(VideoFile.camera_no == DEFAULT_CAMERA_NO)
         .order_by(VideoFile.id.asc())
         .all()
     )
@@ -80,8 +83,23 @@ def _load_day_source_files(session: Session, day: str) -> list[TimelineSourceFil
     return source_files
 
 
-def upsert_day_summary(session: Session, day: str, summary: DaySummarySnapshot) -> DaySummary:
-    current = session.get(DaySummary, day)
+def _get_day_summary_or_none(session: Session, *, camera_no: int, day: str) -> DaySummary | None:
+    return (
+        session.query(DaySummary)
+        .filter(DaySummary.camera_no == camera_no, DaySummary.day == day)
+        .one_or_none()
+    )
+
+
+def upsert_day_summary(
+    session: Session,
+    day: str,
+    summary: DaySummarySnapshot,
+    *,
+    camera_no: int = DEFAULT_CAMERA_NO,
+) -> DaySummary:
+    # DaySummary 的主键已升级为 id，因此不能再用 session.get(DaySummary, day)
+    current = _get_day_summary_or_none(session, camera_no=camera_no, day=day)
     payload = {
         "first_segment_at": (
             summary.first_segment_at.isoformat()
@@ -100,7 +118,7 @@ def upsert_day_summary(session: Session, day: str, summary: DaySummarySnapshot) 
         "updated_at": _now_iso(),
     }
     if current is None:
-        current = DaySummary(day=day, **payload)
+        current = DaySummary(camera_no=camera_no, day=day, **payload)
         session.add(current)
     else:
         for key, value in payload.items():
@@ -108,12 +126,20 @@ def upsert_day_summary(session: Session, day: str, summary: DaySummarySnapshot) 
     return current
 
 
-def rebuild_day_timeline(session: Session, day: str):
-    session.query(TimelineSegment).filter(TimelineSegment.day == day).delete()
+def rebuild_day_timeline(
+    session: Session,
+    day: str,
+    *,
+    camera_no: int = DEFAULT_CAMERA_NO,
+):
+    session.query(TimelineSegment).filter(
+        TimelineSegment.camera_no == camera_no,
+        TimelineSegment.day == day,
+    ).delete()
 
     source_files = _load_day_source_files(session, day)
     if not source_files:
-        summary = session.get(DaySummary, day)
+        summary = _get_day_summary_or_none(session, camera_no=camera_no, day=day)
         if summary is not None:
             session.delete(summary)
         session.flush()
@@ -128,6 +154,7 @@ def rebuild_day_timeline(session: Session, day: str):
         session.add(
             TimelineSegment(
                 file_id=segment.file_id,
+                camera_no=camera_no,
                 day=segment.day,
                 segment_start_at=segment.segment_start_at.isoformat(),
                 segment_end_at=segment.segment_end_at.isoformat(),
@@ -140,7 +167,7 @@ def rebuild_day_timeline(session: Session, day: str):
             )
         )
 
-    upsert_day_summary(session, day, build_result.summary)
+    upsert_day_summary(session, day, build_result.summary, camera_no=camera_no)
     session.flush()
     return build_result
 

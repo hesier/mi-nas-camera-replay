@@ -141,7 +141,7 @@ def test_import_db_without_video_root_env():
 
 def test_old_day_summaries_schema_raises_explicit_error(tmp_path):
     # 模拟旧版数据库：day_summaries(day TEXT PRIMARY KEY, ...)
-    db_path = tmp_path / "replay.db"
+    db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
@@ -161,13 +161,13 @@ def test_old_day_summaries_schema_raises_explicit_error(tmp_path):
 
     # 错误信息必须明确提示删除 replay.db
     message = str(excinfo.value)
-    assert "replay.db" in message
+    assert "legacy.db" in message
     assert "删除" in message
 
 
 def test_old_video_files_schema_missing_camera_no_raises_explicit_error(tmp_path):
     # 模拟旧版数据库：video_files 已存在但缺少 camera_no
-    db_path = tmp_path / "replay.db"
+    db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
@@ -199,13 +199,13 @@ def test_old_video_files_schema_missing_camera_no_raises_explicit_error(tmp_path
 
     message = str(excinfo.value)
     assert "video_files" in message
-    assert "replay.db" in message
+    assert "legacy.db" in message
     assert "删除" in message
 
 
 def test_old_timeline_segments_schema_missing_camera_no_raises_explicit_error(tmp_path):
     # 模拟旧版数据库：timeline_segments 已存在但缺少 camera_no
-    db_path = tmp_path / "replay.db"
+    db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
@@ -237,5 +237,39 @@ def test_old_timeline_segments_schema_missing_camera_no_raises_explicit_error(tm
 
     message = str(excinfo.value)
     assert "timeline_segments" in message
-    assert "replay.db" in message
+    assert "legacy.db" in message
+    assert "删除" in message
+
+
+def test_day_summaries_missing_camera_day_unique_constraint_raises_explicit_error(tmp_path):
+    # 模拟“半升级”数据库：列已存在，但缺少 (camera_no, day) 联合唯一约束
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE day_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                camera_no INTEGER NOT NULL DEFAULT 1,
+                day TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "day_summaries" in message
+    assert "唯一" in message
+    assert "legacy.db" in message
     assert "删除" in message
