@@ -42,6 +42,19 @@ def test_logout_clears_cookie(authenticated_client):
     assert authenticated_client.get("/api/days", params={"camera": 1}).status_code == 401
 
 
+def test_logout_revokes_copied_session_cookie(client):
+    client.post("/api/auth/login", json={"password": "secret-pass"})
+    copied_cookie = client.cookies.get("replay_session")
+
+    logout_response = client.post("/api/auth/logout")
+
+    assert logout_response.status_code == 200
+
+    client.cookies.set("replay_session", copied_cookie)
+    assert client.get("/api/auth/status").json() == {"authenticated": False}
+    assert client.get("/api/days", params={"camera": 1}).status_code == 401
+
+
 def test_auth_status_is_false_without_cookie(client):
     response = client.get("/api/auth/status")
     assert response.status_code == 200

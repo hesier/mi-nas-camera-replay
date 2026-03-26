@@ -1,6 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.core.auth import COOKIE_NAME, build_session_value, is_authenticated
+from app.core.auth import (
+    COOKIE_NAME,
+    build_session_value,
+    is_authenticated,
+    revoke_session,
+)
 from app.core.config import Settings, get_settings
 from app.schemas.auth import AuthStatusResponse, LoginRequest
 
@@ -26,7 +31,11 @@ def login(
 
 
 @router.post("/api/auth/logout", response_model=AuthStatusResponse)
-def logout(response: Response) -> AuthStatusResponse:
+def logout(
+    request: Request,
+    response: Response,
+) -> AuthStatusResponse:
+    revoke_session(request.cookies.get(COOKIE_NAME))
     response.delete_cookie(
         key=COOKIE_NAME,
         httponly=True,
