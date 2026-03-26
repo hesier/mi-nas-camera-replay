@@ -57,9 +57,11 @@ def _build_segment_payload(segment: TimelineSegment, file_record: VideoFile) -> 
     }
 
 
-def _segment_query(session: Session):
-    return session.query(TimelineSegment, VideoFile).join(
-        VideoFile, VideoFile.id == TimelineSegment.file_id
+def _segment_query(session: Session, camera_no: int):
+    return (
+        session.query(TimelineSegment, VideoFile)
+        .join(VideoFile, VideoFile.id == TimelineSegment.file_id)
+        .filter(TimelineSegment.camera_no == camera_no, VideoFile.camera_no == camera_no)
     )
 
 
@@ -67,13 +69,14 @@ def locate_at(
     session: Session,
     at: datetime,
     *,
+    camera_no: int = 1,
     timezone_name: str = "Asia/Shanghai",
 ) -> dict[str, object]:
     normalized_at = _normalize_datetime(at, timezone_name)
     at_iso = normalized_at.isoformat(timespec="microseconds")
 
     current = (
-        _segment_query(session)
+        _segment_query(session, camera_no)
         .filter(TimelineSegment.segment_start_at <= at_iso)
         .filter(TimelineSegment.segment_end_at > at_iso)
         .order_by(desc(TimelineSegment.segment_start_at), desc(TimelineSegment.id))
@@ -94,13 +97,13 @@ def locate_at(
         }
 
     previous = (
-        _segment_query(session)
+        _segment_query(session, camera_no)
         .filter(TimelineSegment.segment_end_at <= at_iso)
         .order_by(desc(TimelineSegment.segment_end_at), desc(TimelineSegment.id))
         .first()
     )
     next_segment = (
-        _segment_query(session)
+        _segment_query(session, camera_no)
         .filter(TimelineSegment.segment_start_at > at_iso)
         .order_by(asc(TimelineSegment.segment_start_at), asc(TimelineSegment.id))
         .first()

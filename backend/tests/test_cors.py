@@ -1,6 +1,7 @@
 def test_days_api_includes_cors_header_for_frontend_origin(client):
     response = client.get(
         "/api/days",
+        params={"camera": 1},
         headers={"Origin": "http://127.0.0.1:4173"},
     )
 

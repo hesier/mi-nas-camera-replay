@@ -6,7 +6,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.models import DaySummary, TimelineSegment, VideoFile
 from app.schemas.timeline import (
@@ -61,21 +61,26 @@ def _build_segment_item(
 
 @router.get("/api/timeline", response_model=TimelineResponse)
 def get_timeline(
+    camera: int,
     day: date,
     session: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> TimelineResponse:
+    configured_cameras = {item.camera_no for item in settings.camera_roots}
+    if camera not in configured_cameras:
+        raise HTTPException(status_code=404, detail="camera not found")
+
     day_value = day.isoformat()
-    camera_no = 1
     summary = (
         session.query(DaySummary)
-        .filter(DaySummary.camera_no == camera_no, DaySummary.day == day_value)
+        .filter(DaySummary.camera_no == camera, DaySummary.day == day_value)
         .one_or_none()
     )
     rows = (
         session.query(TimelineSegment, VideoFile)
         .join(VideoFile, VideoFile.id == TimelineSegment.file_id)
-        .filter(TimelineSegment.camera_no == camera_no, TimelineSegment.day == day_value)
-        .filter(VideoFile.camera_no == camera_no)
+        .filter(TimelineSegment.camera_no == camera, TimelineSegment.day == day_value)
+        .filter(VideoFile.camera_no == camera)
         .order_by(
             TimelineSegment.segment_start_at.asc(),
             TimelineSegment.segment_end_at.asc(),
@@ -119,7 +124,7 @@ def get_timeline(
 
     return TimelineResponse(
         day=day_value,
-        timezone=get_settings().timezone,
+        timezone=settings.timezone,
         summary=TimelineSummary(
             segmentCount=segment_count,
             recordedSeconds=recorded_seconds,

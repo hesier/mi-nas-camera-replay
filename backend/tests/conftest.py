@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.db import Base
+from app.core.config import CameraRoot, get_settings
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 
 
@@ -77,9 +78,11 @@ def client(sqlite_session, monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     from app.core.db import get_db
-    # Settings 现在要求：至少一个 VIDEO_ROOT_数字 + 非空 APP_PASSWORD
-    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path))
+    # 默认测试配置两个通道，便于按通道查询测试
+    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path / "cam1"))
+    monkeypatch.setenv("VIDEO_ROOT_2", str(tmp_path / "cam2"))
     monkeypatch.setenv("APP_PASSWORD", "test-password")
+    get_settings.cache_clear()
 
     import app.main as app_main
 
@@ -99,3 +102,20 @@ def client(sqlite_session, monkeypatch, tmp_path):
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def settings_override(client, tmp_path):
+    settings = SimpleNamespace(
+        timezone="Asia/Shanghai",
+        camera_roots=[
+            CameraRoot(camera_no=1, video_root=str(tmp_path / "cam1")),
+            CameraRoot(camera_no=3, video_root=str(tmp_path / "cam3")),
+        ],
+    )
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        yield settings
+    finally:
+        client.app.dependency_overrides.pop(get_settings, None)

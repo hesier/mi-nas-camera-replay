@@ -4,6 +4,7 @@ from app.models import TimelineSegment, VideoFile
 def _make_video_file(file_id: int) -> VideoFile:
     return VideoFile(
         id=file_id,
+        camera_no=1,
         file_path=f"/videos/{file_id}.mp4",
         file_name=f"{file_id}.mp4",
         file_size=1,
@@ -32,6 +33,7 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
         TimelineSegment(
             id=301,
             file_id=21,
+            camera_no=1,
             day="2026-03-18",
             segment_start_at="2026-03-18T00:00:00+08:00",
             segment_end_at="2026-03-18T00:01:00+08:00",
@@ -45,7 +47,7 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"at": "2026-03-18T00:00:15"})
+    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -74,6 +76,7 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
             TimelineSegment(
                 id=401,
                 file_id=31,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:00:00+08:00",
                 segment_end_at="2026-03-18T00:05:00+08:00",
@@ -87,6 +90,7 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
             TimelineSegment(
                 id=402,
                 file_id=32,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:05:40+08:00",
                 segment_end_at="2026-03-18T00:10:40+08:00",
@@ -101,7 +105,7 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"at": "2026-03-18T00:05:20"})
+    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:05:20"})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -124,3 +128,9 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
             "issueFlags": ["gap_before"],
         },
     }
+
+
+def test_locate_returns_404_for_unknown_camera(client):
+    response = client.get("/api/locate", params={"camera": 99, "at": "2026-03-18T00:05:20"})
+
+    assert response.status_code == 404

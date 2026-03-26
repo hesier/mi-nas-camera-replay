@@ -79,7 +79,7 @@ def test_get_timeline_returns_summary_segments_and_gaps(client, sqlite_session):
     )
     sqlite_session.commit()
 
-    response = client.get("/api/timeline", params={"day": "2026-03-17"})
+    response = client.get("/api/timeline", params={"camera": 1, "day": "2026-03-17"})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -126,7 +126,7 @@ def test_get_timeline_returns_summary_segments_and_gaps(client, sqlite_session):
 
 
 def test_get_timeline_returns_404_when_day_missing(client):
-    response = client.get("/api/timeline", params={"day": "2026-03-19"})
+    response = client.get("/api/timeline", params={"camera": 1, "day": "2026-03-19"})
 
     assert response.status_code == 404
     assert response.json() == {"detail": "timeline not found"}
@@ -180,9 +180,15 @@ def test_get_timeline_omits_small_continuous_gap_from_gaps(client, sqlite_sessio
     )
     sqlite_session.commit()
 
-    response = client.get("/api/timeline", params={"day": "2026-03-18"})
+    response = client.get("/api/timeline", params={"camera": 1, "day": "2026-03-18"})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["summary"]["gapSeconds"] == 0.0
     assert payload["gaps"] == []
+
+
+def test_timeline_returns_404_for_unknown_camera(client):
+    response = client.get("/api/timeline", params={"camera": 99, "day": "2026-03-18"})
+
+    assert response.status_code == 404
