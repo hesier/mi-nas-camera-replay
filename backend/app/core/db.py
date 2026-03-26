@@ -115,12 +115,6 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
         "constrained_columns"
     ) or []
 
-    # 旧版 day_summaries: day TEXT PRIMARY KEY
-    if pk_cols == ["day"] and "id" not in columns:
-        _raise_incompatible(
-            "检测到旧版数据库结构：day_summaries(day TEXT PRIMARY KEY)。该版本与当前程序不兼容。"
-        )
-
     required = {"id", "camera_no", "day", "updated_at"}
     missing = required - columns
     if missing:
@@ -128,6 +122,15 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
         _raise_incompatible(
             "检测到数据库结构不兼容：day_summaries 缺少必要列（"
             f"{missing_text}）。"
+        )
+
+    # Task 2 的关键变化之一：day_summaries 必须以 id 作为主键。
+    # 半升级旧库可能“补了 id 列”但仍保留 day 作为主键，这同样不兼容。
+    if pk_cols != ["id"]:
+        pk_text = ",".join(pk_cols) if pk_cols else "无"
+        _raise_incompatible(
+            "检测到数据库结构不兼容：day_summaries 主键必须为 id"
+            f"（当前主键列：{pk_text}）。"
         )
 
     # 校验 (camera_no, day) 的唯一约束：不同 SQLAlchemy/SQLite 版本下反射行为可能不同，

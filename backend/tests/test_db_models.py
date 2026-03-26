@@ -159,7 +159,7 @@ def test_old_day_summaries_schema_raises_explicit_error(tmp_path):
     with pytest.raises(RuntimeError) as excinfo:
         assert_sqlite_schema_compatible(engine)
 
-    # 错误信息必须明确提示删除 replay.db
+    # 错误信息必须给出明确的恢复动作（删除当前库文件/或调整 sqlite_url）
     message = str(excinfo.value)
     assert "legacy.db" in message
     assert "删除" in message
@@ -273,3 +273,40 @@ def test_day_summaries_missing_camera_day_unique_constraint_raises_explicit_erro
     assert "唯一" in message
     assert "legacy.db" in message
     assert "删除" in message
+
+
+def test_day_summaries_wrong_primary_key_even_with_id_column_raises_explicit_error(
+    tmp_path,
+):
+    # 模拟“半升级”数据库：补了 id 列 + 唯一约束，但主键仍然是 day
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE day_summaries (
+                day TEXT PRIMARY KEY,
+                id INTEGER,
+                camera_no INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL,
+                UNIQUE(camera_no, day)
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "day_summaries" in message
+    assert "主键" in message
+    assert "id" in message
+    assert "legacy.db" in message
