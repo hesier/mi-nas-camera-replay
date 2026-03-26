@@ -198,6 +198,7 @@ def test_timeline_returns_404_for_unknown_camera(client):
     response = client.get("/api/timeline", params={"camera": 99, "day": "2026-03-18"})
 
     assert response.status_code == 404
+    assert response.json() == {"detail": "camera not found"}
 
 
 def test_timeline_filters_segments_by_camera(client, sqlite_session):

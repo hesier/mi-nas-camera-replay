@@ -134,6 +134,7 @@ def test_locate_returns_404_for_unknown_camera(client):
     response = client.get("/api/locate", params={"camera": 99, "at": "2026-03-18T00:05:20"})
 
     assert response.status_code == 404
+    assert response.json() == {"detail": "camera not found"}
 
 
 def test_locate_filters_segments_by_camera(client, sqlite_session):
