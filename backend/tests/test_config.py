@@ -125,3 +125,28 @@ def test_settings_require_app_password(monkeypatch, tmp_path):
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_settings_require_video_root_legacy_and_video_root_1_consistent(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.delenv("VIDEO_ROOT", raising=False)
+    monkeypatch.delenv("VIDEO_ROOT_1", raising=False)
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "\n".join(
+            [
+                "VIDEO_ROOT=/tmp/nas-videos/legacy",
+                "VIDEO_ROOT_1=/tmp/nas-videos/cam1",
+                "APP_PASSWORD=change-me",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValidationError):
+        Settings()

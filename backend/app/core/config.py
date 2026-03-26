@@ -87,6 +87,15 @@ class Settings(BaseSettings):
         # 触发 VIDEO_ROOT_数字 的校验（重复/重叠/至少一个）
         roots = self.camera_roots
 
+        # 兼容旧 VIDEO_ROOT：如果显式设置了旧字段，则必须与 VIDEO_ROOT_1 完全一致，
+        # 否则会出现双真相（video_root 与 camera_roots[0].video_root 指向不同目录）。
+        if "video_root" in self.model_fields_set:
+            if self.video_root != roots[0].video_root:
+                raise ValueError(
+                    "旧配置 VIDEO_ROOT 必须与 VIDEO_ROOT_1 完全一致，"
+                    f"当前 VIDEO_ROOT={self.video_root} VIDEO_ROOT_1={roots[0].video_root}"
+                )
+
         # 旧消费方仍在读取 settings.video_root，这里将其与新配置对齐：
         # 当未显式设置 video_root 时，默认使用 camera_roots[0]。
         if "video_root" not in self.model_fields_set and self.video_root == "./videos":
