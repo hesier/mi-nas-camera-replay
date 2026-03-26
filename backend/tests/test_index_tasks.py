@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from app.core.config import CameraRoot
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 from app.services.media_probe import ProbeResult
+from app.tasks.rebuild_day import rebuild_day_timeline
 from app.tasks.index_videos import enqueue_index_job, run_index_job
 
 
@@ -53,6 +55,7 @@ def test_run_index_job_persists_job_and_day_summary(
 
     stored_file = sqlite_session.query(VideoFile).one()
     assert stored_file.file_path == str(file_path)
+    assert stored_file.camera_no == 1
     assert stored_file.actual_end_at == "2026-03-17T00:10:00+08:00"
 
     stored_segments = sqlite_session.query(TimelineSegment).all()
@@ -70,6 +73,184 @@ def test_run_index_job_persists_job_and_day_summary(
     assert summary.total_recorded_sec == 600.0
     assert summary.total_gap_sec == 0.0
     assert summary.has_warning is False
+
+
+def test_run_index_job_persists_camera_no_and_isolates_day_summary_by_camera(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    cam1_root = tmp_path / "cam1"
+    cam2_root = tmp_path / "cam2"
+    cam1_root.mkdir()
+    cam2_root.mkdir()
+
+    file_name_1 = "00_20260317000000_20260317001000.mp4"
+    file_path_1 = cam1_root / file_name_1
+    file_path_1.write_bytes(b"x")
+
+    file_name_2 = "00_20260317000000_20260317002000.mp4"
+    file_path_2 = cam2_root / file_name_2
+    file_path_2.write_bytes(b"y")
+
+    def fake_scan(root: str):
+        if str(root) == str(cam1_root):
+            return [
+                type(
+                    "ScannedVideoFile",
+                    (),
+                    {
+                        "path": file_path_1,
+                        "name": file_name_1,
+                        "file_size": 1,
+                        "file_mtime": 1711209600,
+                    },
+                )()
+            ]
+        if str(root) == str(cam2_root):
+            return [
+                type(
+                    "ScannedVideoFile",
+                    (),
+                    {
+                        "path": file_path_2,
+                        "name": file_name_2,
+                        "file_size": 1,
+                        "file_mtime": 1711209600,
+                    },
+                )()
+            ]
+        raise AssertionError(f"未知 root: {root}")
+
+    monkeypatch.setattr("app.tasks.index_videos.scan_video_files", fake_scan)
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=600.0, start_time_sec=0.0),
+    )
+
+    job = run_index_job(
+        sqlite_session,
+        camera_roots=[
+            CameraRoot(camera_no=1, video_root=str(cam1_root)),
+            CameraRoot(camera_no=2, video_root=str(cam2_root)),
+        ],
+    )
+
+    assert job.scanned_count == 2
+    assert sqlite_session.query(VideoFile).count() == 2
+
+    files = {f.camera_no: f for f in sqlite_session.query(VideoFile).all()}
+    assert files[1].file_path == str(file_path_1)
+    assert files[2].file_path == str(file_path_2)
+
+    # 同一天不同通道应各自生成 day_summary，且不会混写到同一条
+    summaries = (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.day == "2026-03-17")
+        .order_by(DaySummary.camera_no.asc())
+        .all()
+    )
+    assert [(s.camera_no, s.total_segment_count) for s in summaries] == [(1, 1), (2, 1)]
+
+    segments = (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.day == "2026-03-17")
+        .order_by(TimelineSegment.camera_no.asc())
+        .all()
+    )
+    assert len(segments) == 2
+    assert segments[0].camera_no == 1
+    assert segments[1].camera_no == 2
+
+
+def test_rebuild_day_timeline_only_affects_target_camera(sqlite_session):
+    day = "2026-03-17"
+    sqlite_session.add(
+        TimelineSegment(
+            file_id=1,
+            camera_no=1,
+            day=day,
+            segment_start_at="2026-03-17T00:01:00+08:00",
+            segment_end_at="2026-03-17T00:02:00+08:00",
+            duration_sec=60.0,
+            playback_url="/stale/url/1",
+            file_offset_sec=0.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.add(
+        TimelineSegment(
+            file_id=2,
+            camera_no=2,
+            day=day,
+            segment_start_at="2026-03-17T00:03:00+08:00",
+            segment_end_at="2026-03-17T00:04:00+08:00",
+            duration_sec=60.0,
+            playback_url="/stale/url/2",
+            file_offset_sec=0.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.add(
+        DaySummary(
+            camera_no=1,
+            day=day,
+            first_segment_at="2026-03-17T00:01:00+08:00",
+            last_segment_at="2026-03-17T00:02:00+08:00",
+            total_segment_count=1,
+            total_recorded_sec=60.0,
+            total_gap_sec=0.0,
+            has_warning=True,
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.add(
+        DaySummary(
+            camera_no=2,
+            day=day,
+            first_segment_at="2026-03-17T00:03:00+08:00",
+            last_segment_at="2026-03-17T00:04:00+08:00",
+            total_segment_count=1,
+            total_recorded_sec=60.0,
+            total_gap_sec=0.0,
+            has_warning=True,
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    rebuild_day_timeline(sqlite_session, 1, day)
+    sqlite_session.commit()
+
+    # camera=1 的 segment / summary 应被清理（无 source_files），camera=2 保持不变
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 1, TimelineSegment.day == day)
+        .count()
+        == 0
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == day)
+        .one_or_none()
+        is None
+    )
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 2, TimelineSegment.day == day)
+        .count()
+        == 1
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 2, DaySummary.day == day)
+        .one_or_none()
+        is not None
+    )
 
 
 def test_enqueue_index_job_creates_running_job_and_schedules_background_work(
@@ -108,7 +289,7 @@ def test_enqueue_index_job_creates_running_job_and_schedules_background_work(
     assert stored_job.finished_at is None
     assert scheduled["target"].__name__ == "_run_index_job_in_background"
     assert scheduled["args"][0] == job.id
-    assert scheduled["args"][2] == "2026-03-18"
+    assert scheduled["args"][3] == "2026-03-18"
 
 
 def test_run_index_job_skips_reprobe_when_file_unchanged(

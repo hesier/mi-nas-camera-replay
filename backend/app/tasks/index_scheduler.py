@@ -101,7 +101,7 @@ def run_scheduled_index_job(
     try:
         run_index_job(
             session,
-            root=current_settings.video_root,
+            camera_roots=current_settings.camera_roots,
             target_day=None,
         )
     finally:

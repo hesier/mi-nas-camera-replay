@@ -10,7 +10,7 @@ from threading import Thread
 
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import CameraRoot, get_settings
 from app.core.db import Base, assert_sqlite_schema_compatible
 from app.core.db import SessionLocal
 from app.models import IndexJob, VideoFile
@@ -92,12 +92,15 @@ def _build_video_file_payload(
     incoming_file,
     now_iso: str,
     parsed: ParsedFilename,
+    *,
+    camera_no: int,
 ) -> dict[str, object]:
     probe = probe_media(str(incoming_file.path))
     actual_start_at = parsed.name_start_at
     actual_end_at = actual_start_at + timedelta(seconds=probe.duration_sec)
     status, issue_flags = _build_video_file_status(parsed, probe.duration_sec)
     return {
+        "camera_no": camera_no,
         "file_path": str(incoming_file.path),
         "file_name": incoming_file.name,
         "file_size": incoming_file.file_size,
@@ -123,6 +126,8 @@ def _upsert_video_file(
     session: Session,
     incoming_file,
     now_iso: str,
+    *,
+    camera_no: int,
 ) -> tuple[VideoFile, set[str], bool]:
     existing = (
         session.query(VideoFile)
@@ -134,7 +139,12 @@ def _upsert_video_file(
 
     previous_days = set(collect_impacted_days(existing)) if existing is not None else set()
     parsed = parse_camera_filename(incoming_file.name)
-    payload = _build_video_file_payload(incoming_file, now_iso, parsed)
+    payload = _build_video_file_payload(
+        incoming_file,
+        now_iso,
+        parsed,
+        camera_no=camera_no,
+    )
 
     if existing is None:
         file_record = VideoFile(created_at=now_iso, **payload)
@@ -153,6 +163,8 @@ def _upsert_invalid_video_file(
     session: Session,
     incoming_file,
     now_iso: str,
+    *,
+    camera_no: int,
     issue_flag: str = "invalid_media",
 ) -> tuple[VideoFile, set[str]]:
     existing = (
@@ -164,6 +176,7 @@ def _upsert_invalid_video_file(
     parsed = _parse_filename_or_none(incoming_file.name)
 
     payload = {
+        "camera_no": camera_no,
         "file_path": str(incoming_file.path),
         "file_name": incoming_file.name,
         "file_size": incoming_file.file_size,
@@ -194,6 +207,24 @@ def _upsert_invalid_video_file(
 
     session.flush()
     return file_record, previous_days
+
+
+def _normalize_camera_roots(
+    *,
+    camera_roots: list[CameraRoot] | None,
+    root: str | Path | None,
+) -> list[CameraRoot]:
+    if camera_roots is not None and root is not None:
+        raise ValueError("camera_roots 与 root 不允许同时传入")
+
+    if camera_roots is not None:
+        return camera_roots
+
+    # 兼容旧入口：仅传 root 时默认 camera_no=1
+    if root is not None:
+        return [CameraRoot(camera_no=1, video_root=str(root))]
+
+    return list(get_settings().camera_roots)
 
 
 def _update_job_counters(
@@ -261,6 +292,7 @@ def _run_index_job_with_existing_job(
     session: Session,
     job_id: int,
     *,
+    camera_roots: list[CameraRoot] | None = None,
     root: str | Path | None = None,
     target_day: str | None = None,
 ) -> IndexJob:
@@ -272,50 +304,60 @@ def _run_index_job_with_existing_job(
     failed_count = 0
 
     try:
-        scanned_files = scan_video_files(root or get_settings().video_root)
-        if target_day is not None:
-            scanned_files = [
-                incoming_file
-                for incoming_file in scanned_files
-                if _should_scan_for_target_day(session, incoming_file, target_day)
-            ]
+        effective_camera_roots = _normalize_camera_roots(
+            camera_roots=camera_roots,
+            root=root,
+        )
 
-        for incoming_file in scanned_files:
-            scanned_count += 1
-            try:
-                file_record, previous_days, changed = _upsert_video_file(
-                    session=session,
-                    incoming_file=incoming_file,
-                    now_iso=_now_iso(),
+        for camera_root in effective_camera_roots:
+            scanned_files = scan_video_files(camera_root.video_root)
+            if target_day is not None:
+                scanned_files = [
+                    incoming_file
+                    for incoming_file in scanned_files
+                    if _should_scan_for_target_day(session, incoming_file, target_day)
+                ]
+
+            for incoming_file in scanned_files:
+                scanned_count += 1
+                try:
+                    file_record, previous_days, changed = _upsert_video_file(
+                        session=session,
+                        incoming_file=incoming_file,
+                        now_iso=_now_iso(),
+                        camera_no=camera_root.camera_no,
+                    )
+                except ValueError:
+                    invalid_record, previous_days = _upsert_invalid_video_file(
+                        session=session,
+                        incoming_file=incoming_file,
+                        now_iso=_now_iso(),
+                        camera_no=camera_root.camera_no,
+                    )
+                    for day in sorted(previous_days):
+                        rebuild_day_timeline(session, int(invalid_record.camera_no), day)
+                    session.commit()
+                    failed_count += 1
+                    continue
+
+                if changed:
+                    current_days = set(collect_impacted_days(file_record))
+                    for day in sorted(previous_days - current_days):
+                        rebuild_day_timeline(session, int(file_record.camera_no), day)
+                    rebuild_impacted_days(session, file_record)
+                    session.commit()
+
+                success_count, warning_count, failed_count = _update_job_counters(
+                    file_record,
+                    success_count=success_count,
+                    warning_count=warning_count,
+                    failed_count=failed_count,
                 )
-            except ValueError:
-                _, previous_days = _upsert_invalid_video_file(
-                    session=session,
-                    incoming_file=incoming_file,
-                    now_iso=_now_iso(),
-                )
-                for day in sorted(previous_days):
-                    rebuild_day_timeline(session, day)
-                session.commit()
-                failed_count += 1
-                continue
-
-            if changed:
-                current_days = set(collect_impacted_days(file_record))
-                for day in sorted(previous_days - current_days):
-                    rebuild_day_timeline(session, day)
-                rebuild_impacted_days(session, file_record)
-                session.commit()
-
-            success_count, warning_count, failed_count = _update_job_counters(
-                file_record,
-                success_count=success_count,
-                warning_count=warning_count,
-                failed_count=failed_count,
-            )
 
         if target_day is not None:
-            rebuild_day_timeline(session, target_day)
+            # target_day 模式需要确保指定日期的 timeline 被重建（即使文件未变化）。
+            for camera_root in effective_camera_roots:
+                rebuild_day_timeline(session, camera_root.camera_no, target_day)
             session.commit()
     except Exception:
         session.rollback()
@@ -343,6 +385,8 @@ def _run_index_job_with_existing_job(
 
 def run_index_job(
     session: Session,
+    *,
+    camera_roots: list[CameraRoot] | None = None,
     root: str | Path | None = None,
     target_day: str | None = None,
 ) -> IndexJob:
@@ -350,6 +394,7 @@ def run_index_job(
     return _run_index_job_with_existing_job(
         session,
         job.id,
+        camera_roots=camera_roots,
         root=root,
         target_day=target_day,
     )
@@ -366,6 +411,7 @@ def _start_background_thread(
 
 def _run_index_job_in_background(
     job_id: int,
+    camera_roots: list[CameraRoot] | None,
     root: str | Path | None,
     target_day: str | None,
     session_factory: Callable[[], Session],
@@ -375,6 +421,7 @@ def _run_index_job_in_background(
         _run_index_job_with_existing_job(
             session,
             job_id,
+            camera_roots=camera_roots,
             root=root,
             target_day=target_day,
         )
@@ -387,6 +434,7 @@ def _run_index_job_in_background(
 def start_background_index_job(
     job_id: int,
     *,
+    camera_roots: list[CameraRoot] | None = None,
     root: str | Path | None = None,
     target_day: str | None = None,
     session_factory: Callable[[], Session] = SessionLocal,
@@ -394,6 +442,7 @@ def start_background_index_job(
     return _start_background_thread(
         _run_index_job_in_background,
         job_id,
+        camera_roots,
         root,
         target_day,
         session_factory,
@@ -402,6 +451,7 @@ def start_background_index_job(
 
 def enqueue_index_job(
     *,
+    camera_roots: list[CameraRoot] | None = None,
     root: str | Path | None = None,
     target_day: str | None = None,
     session_factory: Callable[[], Session] = SessionLocal,
@@ -414,6 +464,7 @@ def enqueue_index_job(
 
     start_background_index_job(
         job.id,
+        camera_roots=camera_roots,
         root=root,
         target_day=target_day,
         session_factory=session_factory,
@@ -430,7 +481,7 @@ def main() -> int:
     try:
         job = run_index_job(
             session=session,
-            root=get_settings().video_root,
+            camera_roots=get_settings().camera_roots,
             target_day=args.target_day,
         )
     finally:

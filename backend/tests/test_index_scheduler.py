@@ -65,10 +65,10 @@ def test_run_scheduled_index_job_uses_configured_root_and_closes_session(
 
     monkeypatch.setattr(
         "app.tasks.index_scheduler.run_index_job",
-        lambda db_session, *, root, target_day=None: called.update(
+        lambda db_session, *, camera_roots, target_day=None: called.update(
             {
                 "session": db_session,
-                "root": root,
+                "camera_roots": camera_roots,
                 "target_day": target_day,
             }
         ),
@@ -81,7 +81,7 @@ def test_run_scheduled_index_job_uses_configured_root_and_closes_session(
 
     assert called == {
         "session": session,
-        "root": str(tmp_path),
+        "camera_roots": Settings(video_root=str(tmp_path)).camera_roots,
         "target_day": None,
     }
     assert session.closed is True
@@ -103,10 +103,10 @@ def test_run_scheduled_index_job_uses_video_root_1_when_video_root_not_set(
 
     monkeypatch.setattr(
         "app.tasks.index_scheduler.run_index_job",
-        lambda db_session, *, root, target_day=None: called.update(
+        lambda db_session, *, camera_roots, target_day=None: called.update(
             {
                 "session": db_session,
-                "root": root,
+                "camera_roots": camera_roots,
                 "target_day": target_day,
             }
         ),
@@ -117,7 +117,7 @@ def test_run_scheduled_index_job_uses_video_root_1_when_video_root_not_set(
         session_factory=lambda: session,
     )
 
-    assert called["root"] == str(tmp_path)
+    assert called["camera_roots"][0].video_root == str(tmp_path)
     assert session.closed is True
 
 
@@ -164,7 +164,7 @@ def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
     )
 
     assert result is fake_job
-    assert captured["root"] == str(tmp_path)
+    assert captured["camera_roots"] == Settings(video_root=str(tmp_path)).camera_roots
 
 
 def test_trigger_startup_index_uses_video_root_1_when_video_root_not_set(
@@ -188,7 +188,7 @@ def test_trigger_startup_index_uses_video_root_1_when_video_root_not_set(
     )
 
     assert result is fake_job
-    assert captured["root"] == str(tmp_path)
+    assert captured["camera_roots"][0].video_root == str(tmp_path)
 
 
 def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path):

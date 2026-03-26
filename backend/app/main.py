@@ -20,7 +20,7 @@ def trigger_startup_index(*, settings: Settings | None = None):
     current_settings = settings or get_settings()
     if not current_settings.index_on_startup:
         return None
-    return enqueue_index_job(root=current_settings.video_root)
+    return enqueue_index_job(camera_roots=current_settings.camera_roots)
 
 
 @asynccontextmanager

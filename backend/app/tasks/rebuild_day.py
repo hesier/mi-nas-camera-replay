@@ -98,10 +98,9 @@ def _get_day_summary_or_none(session: Session, *, camera_no: int, day: str) -> D
 
 def upsert_day_summary(
     session: Session,
+    camera_no: int,
     day: str,
     summary: DaySummarySnapshot,
-    *,
-    camera_no: int = DEFAULT_CAMERA_NO,
 ) -> DaySummary:
     # DaySummary 的主键已升级为 id，因此不能再用 session.get(DaySummary, day)
     current = _get_day_summary_or_none(session, camera_no=camera_no, day=day)
@@ -133,9 +132,8 @@ def upsert_day_summary(
 
 def rebuild_day_timeline(
     session: Session,
+    camera_no: int,
     day: str,
-    *,
-    camera_no: int = DEFAULT_CAMERA_NO,
 ):
     session.query(TimelineSegment).filter(
         TimelineSegment.camera_no == camera_no,
@@ -172,11 +170,11 @@ def rebuild_day_timeline(
             )
         )
 
-    upsert_day_summary(session, day, build_result.summary, camera_no=camera_no)
+    upsert_day_summary(session, camera_no, day, build_result.summary)
     session.flush()
     return build_result
 
 
 def rebuild_impacted_days(session: Session, file_record: VideoFile) -> None:
     for day in collect_impacted_days(file_record):
-        rebuild_day_timeline(session, day, camera_no=int(file_record.camera_no))
+        rebuild_day_timeline(session, int(file_record.camera_no), day)
