@@ -88,3 +88,17 @@ def test_list_days_filters_by_camera(client, sqlite_session):
 
     assert response.status_code == 200
     assert [item["day"] for item in response.json()] == ["2026-03-18"]
+
+
+def test_list_days_returns_empty_list_for_configured_camera_without_data(client):
+    response = client.get("/api/days", params={"camera": 2})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_days_returns_404_for_unknown_camera(client):
+    response = client.get("/api/days", params={"camera": 99})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "camera not found"}
