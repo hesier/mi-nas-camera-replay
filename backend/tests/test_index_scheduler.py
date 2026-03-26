@@ -231,6 +231,19 @@ def test_app_lifespan_starts_and_stops_index_scheduler(monkeypatch):
     startup_job = object()
     scheduler_handle = object()
 
+    # lifespan 内会做 schema check / create_all，需要确保使用测试 engine，
+    # 避免命中工作区真实数据库文件。
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    monkeypatch.setattr("app.main.get_engine", lambda: engine)
+
     monkeypatch.setattr(
         "app.main.trigger_startup_index",
         lambda settings=None: events.setdefault("startup", startup_job),

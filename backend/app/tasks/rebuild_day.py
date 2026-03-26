@@ -65,12 +65,17 @@ def _build_timeline_source(record: VideoFile) -> TimelineSourceFile | None:
     )
 
 
-def _load_day_source_files(session: Session, day: str) -> list[TimelineSourceFile]:
+def _load_day_source_files(
+    session: Session,
+    *,
+    camera_no: int,
+    day: str,
+) -> list[TimelineSourceFile]:
     source_files: list[TimelineSourceFile] = []
     records = (
         session.query(VideoFile)
         .filter(VideoFile.status.in_(("ready", "warning")))
-        .filter(VideoFile.camera_no == DEFAULT_CAMERA_NO)
+        .filter(VideoFile.camera_no == camera_no)
         .order_by(VideoFile.id.asc())
         .all()
     )
@@ -137,7 +142,7 @@ def rebuild_day_timeline(
         TimelineSegment.day == day,
     ).delete()
 
-    source_files = _load_day_source_files(session, day)
+    source_files = _load_day_source_files(session, camera_no=camera_no, day=day)
     if not source_files:
         summary = _get_day_summary_or_none(session, camera_no=camera_no, day=day)
         if summary is not None:
@@ -174,4 +179,4 @@ def rebuild_day_timeline(
 
 def rebuild_impacted_days(session: Session, file_record: VideoFile) -> None:
     for day in collect_impacted_days(file_record):
-        rebuild_day_timeline(session, day)
+        rebuild_day_timeline(session, day, camera_no=int(file_record.camera_no))
