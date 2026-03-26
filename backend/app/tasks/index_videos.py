@@ -128,16 +128,26 @@ def _upsert_video_file(
     now_iso: str,
     *,
     camera_no: int,
-) -> tuple[VideoFile, set[str], bool]:
+) -> tuple[VideoFile, set[str], bool, int | None]:
     existing = (
         session.query(VideoFile)
         .filter(VideoFile.file_path == str(incoming_file.path))
         .one_or_none()
     )
     if existing is not None and not should_reprobe(existing, incoming_file):
-        return existing, set(), False
+        previous_camera_no = int(existing.camera_no)
+        if previous_camera_no == camera_no:
+            return existing, set(), False, previous_camera_no
+
+        # 文件内容未变化，但来源通道变更：需要迁移 camera_no，并触发旧通道清理
+        previous_days = set(collect_impacted_days(existing))
+        existing.camera_no = camera_no
+        existing.updated_at = now_iso
+        session.flush()
+        return existing, previous_days, True, previous_camera_no
 
     previous_days = set(collect_impacted_days(existing)) if existing is not None else set()
+    previous_camera_no = int(existing.camera_no) if existing is not None else None
     parsed = parse_camera_filename(incoming_file.name)
     payload = _build_video_file_payload(
         incoming_file,
@@ -156,7 +166,7 @@ def _upsert_video_file(
         file_record = existing
         session.flush()
 
-    return file_record, previous_days, True
+    return file_record, previous_days, True, previous_camera_no
 
 
 def _upsert_invalid_video_file(
@@ -166,13 +176,14 @@ def _upsert_invalid_video_file(
     *,
     camera_no: int,
     issue_flag: str = "invalid_media",
-) -> tuple[VideoFile, set[str]]:
+) -> tuple[VideoFile, set[str], int | None]:
     existing = (
         session.query(VideoFile)
         .filter(VideoFile.file_path == str(incoming_file.path))
         .one_or_none()
     )
     previous_days = set(collect_impacted_days(existing)) if existing is not None else set()
+    previous_camera_no = int(existing.camera_no) if existing is not None else None
     parsed = _parse_filename_or_none(incoming_file.name)
 
     payload = {
@@ -206,7 +217,7 @@ def _upsert_invalid_video_file(
         file_record = existing
 
     session.flush()
-    return file_record, previous_days
+    return file_record, previous_days, previous_camera_no
 
 
 def _normalize_camera_roots(
@@ -224,7 +235,8 @@ def _normalize_camera_roots(
     if root is not None:
         return [CameraRoot(camera_no=1, video_root=str(root))]
 
-    return list(get_settings().camera_roots)
+    # 兼容旧 API 语义：无参调用默认仍只扫单通道（VIDEO_ROOT / VIDEO_ROOT_1）
+    return [CameraRoot(camera_no=1, video_root=str(get_settings().video_root))]
 
 
 def _update_job_counters(
@@ -321,20 +333,26 @@ def _run_index_job_with_existing_job(
             for incoming_file in scanned_files:
                 scanned_count += 1
                 try:
-                    file_record, previous_days, changed = _upsert_video_file(
+                    file_record, previous_days, changed, previous_camera_no = _upsert_video_file(
                         session=session,
                         incoming_file=incoming_file,
                         now_iso=_now_iso(),
                         camera_no=camera_root.camera_no,
                     )
                 except ValueError:
-                    invalid_record, previous_days = _upsert_invalid_video_file(
+                    invalid_record, previous_days, previous_camera_no = _upsert_invalid_video_file(
                         session=session,
                         incoming_file=incoming_file,
                         now_iso=_now_iso(),
                         camera_no=camera_root.camera_no,
                     )
                     for day in sorted(previous_days):
+                        # 文件可能从旧通道迁移到新通道，需要先清理旧通道
+                        if (
+                            previous_camera_no is not None
+                            and previous_camera_no != int(invalid_record.camera_no)
+                        ):
+                            rebuild_day_timeline(session, previous_camera_no, day)
                         rebuild_day_timeline(session, int(invalid_record.camera_no), day)
                     session.commit()
                     failed_count += 1
@@ -342,8 +360,20 @@ def _run_index_job_with_existing_job(
 
                 if changed:
                     current_days = set(collect_impacted_days(file_record))
-                    for day in sorted(previous_days - current_days):
-                        rebuild_day_timeline(session, int(file_record.camera_no), day)
+                    current_camera_no = int(file_record.camera_no)
+
+                    # 文件归属通道发生变化时，旧通道必须重建/清理受影响日期
+                    if (
+                        previous_camera_no is not None
+                        and previous_camera_no != current_camera_no
+                    ):
+                        for day in sorted(previous_days):
+                            rebuild_day_timeline(session, previous_camera_no, day)
+
+                    # 文件日期范围发生变化时，需要清理当前通道中已不再受影响的日期
+                    if previous_camera_no == current_camera_no:
+                        for day in sorted(previous_days - current_days):
+                            rebuild_day_timeline(session, current_camera_no, day)
                     rebuild_impacted_days(session, file_record)
                     session.commit()
 

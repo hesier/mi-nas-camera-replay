@@ -253,6 +253,244 @@ def test_rebuild_day_timeline_only_affects_target_camera(sqlite_session):
     )
 
 
+def test_run_index_job_updates_camera_no_even_when_file_unchanged_and_cleans_old_camera_data(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    cam2_root = tmp_path / "cam2"
+    cam2_root.mkdir()
+
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = cam2_root / file_name
+    file_path.write_bytes(b"x")
+
+    # 旧库里同一路径文件被错误地归到 camera=1，且已有 timeline/day_summary
+    sqlite_session.add(
+        VideoFile(
+            camera_no=1,
+            file_path=str(file_path),
+            file_name=file_name,
+            file_size=1,
+            file_mtime=1711209600,
+            name_start_at="2026-03-17T00:00:00+08:00",
+            name_end_at="2026-03-17T00:10:00+08:00",
+            probe_duration_sec=600.0,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=0.0,
+            actual_start_at="2026-03-17T00:00:00+08:00",
+            actual_end_at="2026-03-17T00:10:00+08:00",
+            time_source="filename",
+            status="ready",
+            issue_flags="[]",
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+    existing = sqlite_session.query(VideoFile).one()
+    sqlite_session.add(
+        TimelineSegment(
+            file_id=existing.id,
+            camera_no=1,
+            day="2026-03-17",
+            segment_start_at="2026-03-17T00:01:00+08:00",
+            segment_end_at="2026-03-17T00:02:00+08:00",
+            duration_sec=60.0,
+            playback_url="/stale/url",
+            file_offset_sec=0.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.add(
+        DaySummary(
+            camera_no=1,
+            day="2026-03-17",
+            first_segment_at="2026-03-17T00:01:00+08:00",
+            last_segment_at="2026-03-17T00:02:00+08:00",
+            total_segment_count=99,
+            total_recorded_sec=60.0,
+            total_gap_sec=12.0,
+            has_warning=True,
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda root: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: (_ for _ in ()).throw(AssertionError("未变化文件仅迁移通道时不应重新探测")),
+    )
+
+    job = run_index_job(
+        sqlite_session,
+        camera_roots=[CameraRoot(camera_no=2, video_root=str(cam2_root))],
+    )
+
+    assert job.scanned_count == 1
+    assert sqlite_session.query(VideoFile).one().camera_no == 2
+
+    # 旧通道脏数据必须被清理
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 1, TimelineSegment.day == "2026-03-17")
+        .count()
+        == 0
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .one_or_none()
+        is None
+    )
+
+    # 新通道应生成对应 timeline/day_summary
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 2, TimelineSegment.day == "2026-03-17")
+        .count()
+        == 1
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 2, DaySummary.day == "2026-03-17")
+        .one_or_none()
+        is not None
+    )
+
+
+def test_run_index_job_invalid_file_migration_cleans_old_camera_data(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    cam2_root = tmp_path / "cam2"
+    cam2_root.mkdir()
+
+    file_name = "bad.mp4"
+    file_path = cam2_root / file_name
+    file_path.write_bytes(b"x")
+
+    # 旧库里同一路径文件被错误归到 camera=1，且曾参与过 timeline/day_summary
+    sqlite_session.add(
+        VideoFile(
+            camera_no=1,
+            file_path=str(file_path),
+            file_name="00_20260317000000_20260317001000.mp4",
+            file_size=2,  # 强制 should_reprobe=True 触发无效文件分支
+            file_mtime=1711209600,
+            name_start_at="2026-03-17T00:00:00+08:00",
+            name_end_at="2026-03-17T00:10:00+08:00",
+            probe_duration_sec=600.0,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=0.0,
+            actual_start_at="2026-03-17T00:00:00+08:00",
+            actual_end_at="2026-03-17T00:10:00+08:00",
+            time_source="filename",
+            status="ready",
+            issue_flags="[]",
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+    existing = sqlite_session.query(VideoFile).one()
+    sqlite_session.add(
+        TimelineSegment(
+            file_id=existing.id,
+            camera_no=1,
+            day="2026-03-17",
+            segment_start_at="2026-03-17T00:01:00+08:00",
+            segment_end_at="2026-03-17T00:02:00+08:00",
+            duration_sec=60.0,
+            playback_url="/stale/url",
+            file_offset_sec=0.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.add(
+        DaySummary(
+            camera_no=1,
+            day="2026-03-17",
+            first_segment_at="2026-03-17T00:01:00+08:00",
+            last_segment_at="2026-03-17T00:02:00+08:00",
+            total_segment_count=99,
+            total_recorded_sec=60.0,
+            total_gap_sec=12.0,
+            has_warning=True,
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda root: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: (_ for _ in ()).throw(AssertionError("无效文件分支不应探测媒体")),
+    )
+
+    job = run_index_job(
+        sqlite_session,
+        camera_roots=[CameraRoot(camera_no=2, video_root=str(cam2_root))],
+    )
+
+    assert job.failed_count == 1
+    assert sqlite_session.query(VideoFile).one().camera_no == 2
+
+    # 旧通道脏数据必须被清理
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 1, TimelineSegment.day == "2026-03-17")
+        .count()
+        == 0
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
+        .one_or_none()
+        is None
+    )
+
+
 def test_enqueue_index_job_creates_running_job_and_schedules_background_work(
     sqlite_session,
     monkeypatch,
