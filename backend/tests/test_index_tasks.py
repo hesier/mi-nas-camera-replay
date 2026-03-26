@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.config import CameraRoot
+from app.core.config import CameraRoot, get_settings
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 from app.services.media_probe import ProbeResult
 from app.tasks.rebuild_day import rebuild_day_timeline
@@ -488,6 +488,209 @@ def test_run_index_job_invalid_file_migration_cleans_old_camera_data(
         .filter(DaySummary.camera_no == 1, DaySummary.day == "2026-03-17")
         .one_or_none()
         is None
+    )
+
+
+def test_run_index_job_without_args_defaults_to_single_camera_1_using_video_root(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    cam1_root = tmp_path / "cam1"
+    cam2_root = tmp_path / "cam2"
+    cam1_root.mkdir()
+    cam2_root.mkdir()
+
+    # 同时配置两个 VIDEO_ROOT，锁住“无参索引仍只走 video_root/camera=1”
+    monkeypatch.setenv("VIDEO_ROOT_1", str(cam1_root))
+    monkeypatch.setenv("VIDEO_ROOT_2", str(cam2_root))
+    monkeypatch.setenv("APP_PASSWORD", "test-password")
+    get_settings.cache_clear()
+
+    file_name_1 = "00_20260317000000_20260317001000.mp4"
+    file_path_1 = cam1_root / file_name_1
+    file_path_1.write_bytes(b"x")
+
+    file_name_2 = "00_20260317000000_20260317001000.mp4"
+    file_path_2 = cam2_root / file_name_2
+    file_path_2.write_bytes(b"y")
+
+    scanned_roots: list[str] = []
+
+    def fake_scan(root: str):
+        scanned_roots.append(str(root))
+        if str(root) == str(cam1_root):
+            return [
+                type(
+                    "ScannedVideoFile",
+                    (),
+                    {
+                        "path": file_path_1,
+                        "name": file_name_1,
+                        "file_size": 1,
+                        "file_mtime": 1711209600,
+                    },
+                )()
+            ]
+        if str(root) == str(cam2_root):
+            return [
+                type(
+                    "ScannedVideoFile",
+                    (),
+                    {
+                        "path": file_path_2,
+                        "name": file_name_2,
+                        "file_size": 1,
+                        "file_mtime": 1711209600,
+                    },
+                )()
+            ]
+        raise AssertionError(f"未知 root: {root}")
+
+    monkeypatch.setattr("app.tasks.index_videos.scan_video_files", fake_scan)
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: ProbeResult(duration_sec=600.0, start_time_sec=0.0),
+    )
+
+    job = run_index_job(sqlite_session)
+
+    assert job.scanned_count == 1
+    assert scanned_roots == [str(cam1_root)]
+
+    stored = sqlite_session.query(VideoFile).one()
+    assert stored.camera_no == 1
+    assert stored.file_path == str(file_path_1)
+
+    # 避免影响其他测试：清掉 Settings cache
+    get_settings.cache_clear()
+
+
+def test_run_index_job_target_day_migration_cleans_old_camera_data(
+    sqlite_session,
+    monkeypatch,
+    tmp_path,
+):
+    cam2_root = tmp_path / "cam2"
+    cam2_root.mkdir()
+
+    day = "2026-03-17"
+    file_name = "00_20260317000000_20260317001000.mp4"
+    file_path = cam2_root / file_name
+    file_path.write_bytes(b"x")
+
+    # 旧库中该文件被错误归属到 camera=1，且旧通道有脏 timeline/day_summary
+    sqlite_session.add(
+        VideoFile(
+            camera_no=1,
+            file_path=str(file_path),
+            file_name=file_name,
+            file_size=1,
+            file_mtime=1711209600,
+            name_start_at="2026-03-17T00:00:00+08:00",
+            name_end_at="2026-03-17T00:10:00+08:00",
+            probe_duration_sec=600.0,
+            probe_video_codec=None,
+            probe_audio_codec=None,
+            probe_width=None,
+            probe_height=None,
+            probe_start_time_sec=0.0,
+            actual_start_at="2026-03-17T00:00:00+08:00",
+            actual_end_at="2026-03-17T00:10:00+08:00",
+            time_source="filename",
+            status="ready",
+            issue_flags="[]",
+            created_at="2026-03-24T00:00:00+08:00",
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+    existing = sqlite_session.query(VideoFile).one()
+    sqlite_session.add(
+        TimelineSegment(
+            file_id=existing.id,
+            camera_no=1,
+            day=day,
+            segment_start_at="2026-03-17T00:01:00+08:00",
+            segment_end_at="2026-03-17T00:02:00+08:00",
+            duration_sec=60.0,
+            playback_url="/stale/url",
+            file_offset_sec=0.0,
+            prev_gap_sec=None,
+            next_gap_sec=None,
+            status="warning",
+        )
+    )
+    sqlite_session.add(
+        DaySummary(
+            camera_no=1,
+            day=day,
+            first_segment_at="2026-03-17T00:01:00+08:00",
+            last_segment_at="2026-03-17T00:02:00+08:00",
+            total_segment_count=99,
+            total_recorded_sec=60.0,
+            total_gap_sec=12.0,
+            has_warning=True,
+            updated_at="2026-03-24T00:00:00+08:00",
+        )
+    )
+    sqlite_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.index_videos.scan_video_files",
+        lambda root: [
+            type(
+                "ScannedVideoFile",
+                (),
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "file_size": 1,
+                    "file_mtime": 1711209600,
+                },
+            )()
+        ],
+    )
+    monkeypatch.setattr(
+        "app.tasks.index_videos.probe_media",
+        lambda _: (_ for _ in ()).throw(AssertionError("迁移仅改归属时不应探测媒体")),
+    )
+
+    job = run_index_job(
+        sqlite_session,
+        camera_roots=[CameraRoot(camera_no=2, video_root=str(cam2_root))],
+        target_day=day,
+    )
+
+    assert job.scanned_count == 1
+    assert sqlite_session.query(VideoFile).one().camera_no == 2
+
+    # target_day 补扫 + 迁移：旧通道必须被清理
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 1, TimelineSegment.day == day)
+        .count()
+        == 0
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 1, DaySummary.day == day)
+        .one_or_none()
+        is None
+    )
+
+    # 新通道必须有对应数据
+    assert (
+        sqlite_session.query(TimelineSegment)
+        .filter(TimelineSegment.camera_no == 2, TimelineSegment.day == day)
+        .count()
+        == 1
+    )
+    assert (
+        sqlite_session.query(DaySummary)
+        .filter(DaySummary.camera_no == 2, DaySummary.day == day)
+        .one_or_none()
+        is not None
     )
 
 
