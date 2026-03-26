@@ -163,3 +163,79 @@ def test_old_day_summaries_schema_raises_explicit_error(tmp_path):
     message = str(excinfo.value)
     assert "replay.db" in message
     assert "删除" in message
+
+
+def test_old_video_files_schema_missing_camera_no_raises_explicit_error(tmp_path):
+    # 模拟旧版数据库：video_files 已存在但缺少 camera_no
+    db_path = tmp_path / "replay.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE video_files (
+                id INTEGER PRIMARY KEY,
+                file_path TEXT NOT NULL UNIQUE,
+                file_name TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                file_mtime INTEGER NOT NULL,
+                time_source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "video_files" in message
+    assert "replay.db" in message
+    assert "删除" in message
+
+
+def test_old_timeline_segments_schema_missing_camera_no_raises_explicit_error(tmp_path):
+    # 模拟旧版数据库：timeline_segments 已存在但缺少 camera_no
+    db_path = tmp_path / "replay.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE timeline_segments (
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER NOT NULL,
+                day TEXT NOT NULL,
+                segment_start_at TEXT NOT NULL,
+                segment_end_at TEXT NOT NULL,
+                duration_sec REAL NOT NULL,
+                playback_url TEXT NOT NULL,
+                file_offset_sec REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "timeline_segments" in message
+    assert "replay.db" in message
+    assert "删除" in message

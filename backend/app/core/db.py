@@ -64,8 +64,31 @@ def assert_sqlite_schema_compatible(engine: Engine) -> None:
     """
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
+
+    # 新库或尚未建表：后续 create_all 会创建正确结构
+    if not ({"video_files", "timeline_segments", "day_summaries"} & table_names):
+        return
+
+    if "video_files" in table_names:
+        video_cols = {col["name"] for col in inspector.get_columns("video_files")}
+        if "camera_no" not in video_cols:
+            raise RuntimeError(
+                "检测到旧版数据库结构：video_files 缺少 camera_no 列。"
+                "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+            )
+
+    if "timeline_segments" in table_names:
+        segment_cols = {
+            col["name"] for col in inspector.get_columns("timeline_segments")
+        }
+        if "camera_no" not in segment_cols:
+            raise RuntimeError(
+                "检测到旧版数据库结构：timeline_segments 缺少 camera_no 列。"
+                "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+            )
+
     if "day_summaries" not in table_names:
-        # 新库或尚未建表，后续 create_all 会创建正确结构
+        # 只要其它表已满足 camera_no 结构，day_summaries 不存在属于新库首次创建场景
         return
 
     columns = {col["name"] for col in inspector.get_columns("day_summaries")}
