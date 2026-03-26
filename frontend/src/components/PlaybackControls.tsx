@@ -4,7 +4,7 @@ interface PlaybackControlsProps {
   onPlaybackRateChange: (value: number) => void;
 }
 
-const PLAYBACK_RATES = [0.5, 1, 1.5, 2];
+const PLAYBACK_RATES = [0.5, 1, 2, 4];
 
 export function PlaybackControls({
   playbackRate,

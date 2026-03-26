@@ -10,12 +10,18 @@ from app.api.timeline import router as timeline_router
 from app.api.videos import router as videos_router
 from app.core.config import get_settings
 from app.core.db import Base, engine
+from app.tasks.index_scheduler import start_index_scheduler, stop_index_scheduler
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    yield
+    scheduler = start_index_scheduler()
+    app.state.index_scheduler = scheduler
+    try:
+        yield
+    finally:
+        stop_index_scheduler(scheduler)
 
 
 def create_app() -> FastAPI:

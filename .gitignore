@@ -6,6 +6,7 @@ __pycache__/
 venv/
 dist/
 build/
+*.egg-info/
 node_modules/
 coverage/
 htmlcov/
@@ -13,6 +14,7 @@ htmlcov/
 *.db
 .env
 .env.*
+!backend/.env.example
 .worktrees/
 backend/__pycache__/
 frontend/.vite/

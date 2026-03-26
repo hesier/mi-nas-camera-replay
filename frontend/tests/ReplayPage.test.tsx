@@ -97,6 +97,17 @@ describe('ReplayPage', () => {
     expect(screen.getByText('倍速')).toBeInTheDocument();
   });
 
+  it('renders playback rate options as 0.5x 1x 2x and 4x', () => {
+    render(<ReplayPage />);
+
+    const rateSelect = screen.getByLabelText('倍速');
+    const optionLabels = Array.from(rateSelect.querySelectorAll('option')).map((option) =>
+      option.textContent,
+    );
+
+    expect(optionLabels).toEqual(['0.5x', '1x', '2x', '4x']);
+  });
+
   it('renders timeline inside player panel instead of a separate card', () => {
     render(<ReplayPage />);
 

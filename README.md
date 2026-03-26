@@ -1,44 +1,61 @@
 # NAS Camera Replay
 
-## 本地运行
+本项目用于本地查看 NAS 中的小米摄像头回放文件，当前阶段聚焦单摄像头、单用户、本地网页访问。
 
-### 后端
+## 目录说明
 
-在 `backend/` 目录执行：
+- [backend/README.md](/Users/siyu/develop/ai/mi/backend/README.md)：后端启动、`.env` 配置、初始化扫描、定时索引
+- [frontend/README.md](/Users/siyu/develop/ai/mi/frontend/README.md)：前端开发启动、接口代理、测试与构建
+
+## 快速启动
+
+### 1. 启动后端
+
+在 `backend/` 目录准备 `.env`：
+
+```env
+VIDEO_ROOT=./videos
+INDEX_SCHEDULER_ENABLED=false
+INDEX_SCHEDULER_TIME=03:00
+SQLITE_URL=sqlite:///./replay.db
+TIMEZONE=Asia/Shanghai
+```
+
+启动命令：
 
 ```bash
+cd backend
 ./.venv/bin/python -m uvicorn app.main:app --reload
 ```
 
 默认地址：`http://127.0.0.1:8000`
 
-### 前端
+### 2. 初始化一次视频索引
 
-在 `frontend/` 目录执行：
+首次建议执行一次同步扫描：
 
 ```bash
+cd backend
+./.venv/bin/python -m app.tasks.index_videos
+```
+
+也可以通过接口异步触发：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/index/rebuild
+```
+
+### 3. 启动前端
+
+```bash
+cd frontend
 npm install
 npm run dev
 ```
 
 默认地址：`http://127.0.0.1:5173`
 
-## 测试命令
-
-### 后端测试
-
-```bash
-cd backend
-./.venv/bin/python -m pytest tests -q
-```
-
-### 前端测试
-
-```bash
-cd frontend
-npm test
-npx tsc --noEmit
-```
+前端开发环境已内置 `/api` 代理，会自动转发到 `http://127.0.0.1:8000`。
 
 ## 当前能力
 
