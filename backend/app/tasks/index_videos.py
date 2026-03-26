@@ -11,7 +11,7 @@ from threading import Thread
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.db import Base
+from app.core.db import Base, assert_sqlite_schema_compatible
 from app.core.db import SessionLocal
 from app.models import IndexJob, VideoFile
 from app.services.file_scanner import scan_video_files, should_reprobe
@@ -240,6 +240,7 @@ def create_index_job(
     *,
     target_day: str | None,
 ) -> IndexJob:
+    assert_sqlite_schema_compatible(session.get_bind())
     Base.metadata.create_all(bind=session.get_bind())
     job = IndexJob(
         job_day=target_day or "all",

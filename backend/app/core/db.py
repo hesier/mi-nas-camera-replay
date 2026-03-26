@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
@@ -53,3 +53,62 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
+
+def assert_sqlite_schema_compatible(engine: Engine) -> None:
+    """
+    显式校验 SQLite 现有库结构是否与当前代码版本兼容。
+
+    由于 SQLite 缺少原生的迁移能力，且 SQLAlchemy 的 create_all() 不会修改既有表结构，
+    如果用户沿用旧版 replay.db，会产生“表存在但缺列/主键不一致”的隐性错误。
+    这里选择在启动与 CLI 入口提前失败，并给出明确的中文提示。
+    """
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "day_summaries" not in table_names:
+        # 新库或尚未建表，后续 create_all 会创建正确结构
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("day_summaries")}
+    pk_cols = inspector.get_pk_constraint("day_summaries").get(
+        "constrained_columns"
+    ) or []
+
+    # 旧版 day_summaries: day TEXT PRIMARY KEY
+    if pk_cols == ["day"] and "id" not in columns:
+        raise RuntimeError(
+            "检测到旧版数据库结构：day_summaries(day TEXT PRIMARY KEY)。"
+            "该版本与当前程序不兼容，请删除 replay.db 后重新启动。"
+        )
+
+    required = {"id", "camera_no", "day", "updated_at"}
+    missing = required - columns
+    if missing:
+        missing_text = ",".join(sorted(missing))
+        raise RuntimeError(
+            "检测到数据库结构不兼容：day_summaries 缺少必要列（"
+            f"{missing_text}）。请删除 replay.db 后重新启动。"
+        )
+
+    # 校验 (camera_no, day) 的唯一约束：不同 SQLAlchemy/SQLite 版本下反射行为可能不同，
+    # 这里兜底用 PRAGMA index_* 做一次检查。
+    uniques = inspector.get_unique_constraints("day_summaries")
+    if any(set(u.get("column_names") or []) == {"camera_no", "day"} for u in uniques):
+        return
+
+    with engine.connect() as conn:
+        index_rows = conn.execute(text("PRAGMA index_list('day_summaries')")).fetchall()
+        for row in index_rows:
+            # (seq, name, unique, origin, partial)
+            index_name = row[1]
+            is_unique = bool(row[2])
+            if not is_unique:
+                continue
+            cols = conn.execute(text(f"PRAGMA index_info('{index_name}')")).fetchall()
+            col_names = {c[2] for c in cols}  # (seqno, cid, name)
+            if col_names == {"camera_no", "day"}:
+                return
+
+    raise RuntimeError(
+        "检测到数据库结构不兼容：day_summaries 缺少 (camera_no, day) 的唯一约束。"
+        "请删除 replay.db 后重新启动。"
+    )

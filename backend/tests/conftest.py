@@ -39,6 +39,7 @@ def sqlite_session():
 @pytest.fixture
 def existing_record():
     return VideoFile(
+        camera_no=1,
         file_path="/videos/00_20260317000000_20260317001000.mp4",
         file_name="00_20260317000000_20260317001000.mp4",
         file_size=123,
