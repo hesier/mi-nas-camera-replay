@@ -37,6 +37,7 @@ cp .env.example .env
 
 ```env
 VIDEO_ROOT=./videos
+INDEX_ON_STARTUP=false
 INDEX_SCHEDULER_ENABLED=false
 INDEX_SCHEDULER_TIME=03:00
 SQLITE_URL=sqlite:///./replay.db
@@ -46,6 +47,7 @@ TIMEZONE=Asia/Shanghai
 说明：
 
 - `VIDEO_ROOT`：NAS 视频目录挂载点
+- `INDEX_ON_STARTUP`：服务启动时是否自动提交一次后台补扫任务
 - `INDEX_SCHEDULER_ENABLED`：是否开启内建每日调度器
 - `INDEX_SCHEDULER_TIME`：每日执行时间，支持 `03:00` 和 `3:00`
 - `SQLITE_URL`：SQLite 数据库地址
@@ -108,6 +110,19 @@ INDEX_SCHEDULER_TIME=03:00
 ```
 
 表示每天凌晨 3 点执行一次索引任务。
+
+## 启动时补扫
+
+如果你希望后端每次启动后自动提交一次后台索引任务，可以这样配置：
+
+```env
+INDEX_ON_STARTUP=true
+```
+
+说明：
+
+- 启动补扫是异步提交，不会阻塞 Web 服务启动
+- `uvicorn --reload` 开发模式下每次重启都会触发一次，开发时通常建议保持关闭
 
 ## 测试
 

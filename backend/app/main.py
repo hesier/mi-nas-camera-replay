@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,15 +10,26 @@ from app.api.index_jobs import router as index_jobs_router
 from app.api.locate import router as locate_router
 from app.api.timeline import router as timeline_router
 from app.api.videos import router as videos_router
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.db import Base, engine
 from app.tasks.index_scheduler import start_index_scheduler, stop_index_scheduler
+from app.tasks.index_videos import enqueue_index_job
+
+
+def trigger_startup_index(*, settings: Settings | None = None):
+    current_settings = settings or get_settings()
+    if not current_settings.index_on_startup:
+        return None
+    return enqueue_index_job(root=current_settings.video_root)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
     Base.metadata.create_all(bind=engine)
-    scheduler = start_index_scheduler()
+    startup_index_job = trigger_startup_index(settings=settings)
+    scheduler = start_index_scheduler(settings=settings)
+    app.state.startup_index_job = startup_index_job
     app.state.index_scheduler = scheduler
     try:
         yield

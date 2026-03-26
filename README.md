@@ -15,6 +15,7 @@
 
 ```env
 VIDEO_ROOT=./videos
+INDEX_ON_STARTUP=false
 INDEX_SCHEDULER_ENABLED=false
 INDEX_SCHEDULER_TIME=03:00
 SQLITE_URL=sqlite:///./replay.db

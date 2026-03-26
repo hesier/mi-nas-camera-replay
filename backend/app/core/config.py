@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Shanghai"
     sqlite_url: str = "sqlite:///./replay.db"
     video_root: str = "./videos"
+    index_on_startup: bool = False
     index_scheduler_enabled: bool = False
     index_scheduler_time: time = "03:00"
     cors_origins: list[str] = [

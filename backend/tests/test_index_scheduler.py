@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.main import create_app
+from app.main import create_app, trigger_startup_index
 from app.tasks.index_scheduler import (
     get_next_run_at,
     run_scheduled_index_job,
@@ -91,6 +91,37 @@ def test_start_index_scheduler_returns_none_when_disabled(monkeypatch):
     assert result is None
 
 
+def test_trigger_startup_index_returns_none_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "app.main.enqueue_index_job",
+        lambda **_: (_ for _ in ()).throw(AssertionError("不应触发启动补扫")),
+    )
+
+    result = trigger_startup_index(settings=Settings(index_on_startup=False))
+
+    assert result is None
+
+
+def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+    fake_job = object()
+
+    monkeypatch.setattr(
+        "app.main.enqueue_index_job",
+        lambda **kwargs: captured.update(kwargs) or fake_job,
+    )
+
+    result = trigger_startup_index(
+        settings=Settings(
+            video_root=str(tmp_path),
+            index_on_startup=True,
+        ),
+    )
+
+    assert result is fake_job
+    assert captured["root"] == str(tmp_path)
+
+
 def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path):
     created: dict[str, object] = {}
 
@@ -126,11 +157,16 @@ def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path
 
 def test_app_lifespan_starts_and_stops_index_scheduler(monkeypatch):
     events: dict[str, object] = {}
+    startup_job = object()
     scheduler_handle = object()
 
     monkeypatch.setattr(
+        "app.main.trigger_startup_index",
+        lambda settings=None: events.setdefault("startup", startup_job),
+    )
+    monkeypatch.setattr(
         "app.main.start_index_scheduler",
-        lambda: events.setdefault("started", scheduler_handle),
+        lambda settings=None: events.setdefault("started", scheduler_handle),
     )
     monkeypatch.setattr(
         "app.main.stop_index_scheduler",
@@ -140,7 +176,9 @@ def test_app_lifespan_starts_and_stops_index_scheduler(monkeypatch):
     app = create_app()
 
     with TestClient(app):
+        assert app.state.startup_index_job is startup_job
         assert app.state.index_scheduler is scheduler_handle
 
+    assert events["startup"] is startup_job
     assert events["started"] is scheduler_handle
     assert events["stopped"] is scheduler_handle
