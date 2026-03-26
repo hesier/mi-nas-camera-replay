@@ -11,7 +11,7 @@ from app.api.locate import router as locate_router
 from app.api.timeline import router as timeline_router
 from app.api.videos import router as videos_router
 from app.core.config import Settings, get_settings
-from app.core.db import Base, get_engine
+from app.core.db import Base, engine
 from app.tasks.index_scheduler import start_index_scheduler, stop_index_scheduler
 from app.tasks.index_videos import enqueue_index_job
 
@@ -26,7 +26,6 @@ def trigger_startup_index(*, settings: Settings | None = None):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    engine = get_engine()
     Base.metadata.create_all(bind=engine)
     startup_index_job = trigger_startup_index(settings=settings)
     scheduler = start_index_scheduler(settings=settings)
