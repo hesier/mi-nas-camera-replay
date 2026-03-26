@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.main import create_app, trigger_startup_index
 from app.tasks.index_scheduler import (
     get_next_run_at,
     run_scheduled_index_job,
@@ -88,6 +87,40 @@ def test_run_scheduled_index_job_uses_configured_root_and_closes_session(
     assert session.closed is True
 
 
+def test_run_scheduled_index_job_uses_video_root_1_when_video_root_not_set(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeSession:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    session = FakeSession()
+    called: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.tasks.index_scheduler.run_index_job",
+        lambda db_session, *, root, target_day=None: called.update(
+            {
+                "session": db_session,
+                "root": root,
+                "target_day": target_day,
+            }
+        ),
+    )
+
+    run_scheduled_index_job(
+        settings=Settings(),
+        session_factory=lambda: session,
+    )
+
+    assert called["root"] == str(tmp_path)
+    assert session.closed is True
+
+
 def test_start_index_scheduler_returns_none_when_disabled(monkeypatch):
     monkeypatch.setattr(
         "app.tasks.index_scheduler.DailyIndexScheduler",
@@ -100,6 +133,8 @@ def test_start_index_scheduler_returns_none_when_disabled(monkeypatch):
 
 
 def test_trigger_startup_index_returns_none_when_disabled(monkeypatch):
+    from app.main import trigger_startup_index
+
     monkeypatch.setattr(
         "app.main.enqueue_index_job",
         lambda **_: (_ for _ in ()).throw(AssertionError("不应触发启动补扫")),
@@ -111,6 +146,8 @@ def test_trigger_startup_index_returns_none_when_disabled(monkeypatch):
 
 
 def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
+    from app.main import trigger_startup_index
+
     captured: dict[str, object] = {}
     fake_job = object()
 
@@ -122,6 +159,30 @@ def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
     result = trigger_startup_index(
         settings=Settings(
             video_root=str(tmp_path),
+            index_on_startup=True,
+        ),
+    )
+
+    assert result is fake_job
+    assert captured["root"] == str(tmp_path)
+
+
+def test_trigger_startup_index_uses_video_root_1_when_video_root_not_set(
+    monkeypatch,
+    tmp_path,
+):
+    from app.main import trigger_startup_index
+
+    captured: dict[str, object] = {}
+    fake_job = object()
+
+    monkeypatch.setattr(
+        "app.main.enqueue_index_job",
+        lambda **kwargs: captured.update(kwargs) or fake_job,
+    )
+
+    result = trigger_startup_index(
+        settings=Settings(
             index_on_startup=True,
         ),
     )
@@ -164,6 +225,8 @@ def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path
 
 
 def test_app_lifespan_starts_and_stops_index_scheduler(monkeypatch):
+    from app.main import create_app
+
     events: dict[str, object] = {}
     startup_job = object()
     scheduler_handle = object()

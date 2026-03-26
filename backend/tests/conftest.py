@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,12 +8,6 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-# 测试收集阶段会导入 app.core.db / app.main，且它们会在导入期读取 Settings。
-# 由于 Settings 现在要求：至少一个 VIDEO_ROOT_数字 + 非空 APP_PASSWORD，
-# 这里提供默认值，避免未显式配置时在收集阶段直接失败。
-os.environ.setdefault("VIDEO_ROOT_1", "./videos/cam1")
-os.environ.setdefault("APP_PASSWORD", "test-password")
 
 from app.core.db import Base
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
@@ -79,10 +72,14 @@ def incoming_file():
 
 
 @pytest.fixture
-def client(sqlite_session):
+def client(sqlite_session, monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     from app.core.db import get_db
+    # Settings 现在要求：至少一个 VIDEO_ROOT_数字 + 非空 APP_PASSWORD
+    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path))
+    monkeypatch.setenv("APP_PASSWORD", "test-password")
+
     from app.main import create_app
 
     app = create_app()
