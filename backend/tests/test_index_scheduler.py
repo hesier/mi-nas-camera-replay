@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
+
+# app.main 在模块导入时会创建全局 app 并读取 Settings。
+# 为避免测试收集阶段就因缺少必需配置而失败，这里提供一组默认值，
+# 各测试用例会在需要时用 monkeypatch 覆盖。
+os.environ.setdefault("VIDEO_ROOT_1", "./videos/cam1")
+os.environ.setdefault("APP_PASSWORD", "test-password")
 
 from app.core.config import Settings
 from app.main import create_app, trigger_startup_index
@@ -12,6 +20,13 @@ from app.tasks.index_scheduler import (
     run_scheduled_index_job,
     start_index_scheduler,
 )
+
+
+@pytest.fixture(autouse=True)
+def _settings_required_env(monkeypatch, tmp_path):
+    # Settings 现在要求：至少一个 VIDEO_ROOT_数字 + 非空 APP_PASSWORD
+    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path))
+    monkeypatch.setenv("APP_PASSWORD", "test-password")
 
 
 def test_settings_supports_string_scheduler_time_formats():
