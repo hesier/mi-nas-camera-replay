@@ -27,7 +27,9 @@ def _make_video_file(file_id: int, *, camera_no: int = 1) -> VideoFile:
     )
 
 
-def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session):
+def test_locate_returns_segment_when_time_hits_recording(
+    authenticated_client, sqlite_session
+):
     sqlite_session.add(_make_video_file(21))
     sqlite_session.add(
         TimelineSegment(
@@ -47,7 +49,9 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"})
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"}
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -69,7 +73,9 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
     }
 
 
-def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_session):
+def test_locate_returns_gap_and_next_segment_when_time_hits_gap(
+    authenticated_client, sqlite_session
+):
     sqlite_session.add_all([_make_video_file(31), _make_video_file(32)])
     sqlite_session.add_all(
         [
@@ -105,7 +111,9 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:05:20"})
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 1, "at": "2026-03-18T00:05:20"}
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -130,14 +138,16 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
     }
 
 
-def test_locate_returns_404_for_unknown_camera(client):
-    response = client.get("/api/locate", params={"camera": 99, "at": "2026-03-18T00:05:20"})
+def test_locate_returns_404_for_unknown_camera(authenticated_client):
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 99, "at": "2026-03-18T00:05:20"}
+    )
 
     assert response.status_code == 404
     assert response.json() == {"detail": "camera not found"}
 
 
-def test_locate_filters_segments_by_camera(client, sqlite_session):
+def test_locate_filters_segments_by_camera(authenticated_client, sqlite_session):
     sqlite_session.add_all(
         [
             _make_video_file(41, camera_no=1),
@@ -174,7 +184,9 @@ def test_locate_filters_segments_by_camera(client, sqlite_session):
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"camera": 2, "at": "2026-03-18T00:00:15"})
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 2, "at": "2026-03-18T00:00:15"}
+    )
 
     assert response.status_code == 200
     assert response.json()["segment"]["id"] == 412

@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_authenticated
 from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.models import DaySummary
 from app.schemas.day import DayItem
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 @router.get("/api/days", response_model=list[DayItem])

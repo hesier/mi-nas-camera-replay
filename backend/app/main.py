@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.cameras import router as cameras_router
 from app.api.days import router as days_router
 from app.api.index_jobs import router as index_jobs_router
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth_router)
     app.include_router(days_router)
     app.include_router(cameras_router)
     app.include_router(timeline_router)

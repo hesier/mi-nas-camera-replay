@@ -81,7 +81,7 @@ def client(sqlite_session, monkeypatch, tmp_path):
     # 默认测试配置两个通道，便于按通道查询测试
     monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path / "cam1"))
     monkeypatch.setenv("VIDEO_ROOT_2", str(tmp_path / "cam2"))
-    monkeypatch.setenv("APP_PASSWORD", "test-password")
+    monkeypatch.setenv("APP_PASSWORD", "secret-pass")
     get_settings.cache_clear()
 
     import app.main as app_main
@@ -109,6 +109,7 @@ def client(sqlite_session, monkeypatch, tmp_path):
 def settings_override(client, tmp_path):
     settings = SimpleNamespace(
         timezone="Asia/Shanghai",
+        app_password="secret-pass",
         camera_roots=[
             CameraRoot(camera_no=1, video_root=str(tmp_path / "cam1")),
             CameraRoot(camera_no=3, video_root=str(tmp_path / "cam3")),
@@ -119,3 +120,9 @@ def settings_override(client, tmp_path):
         yield settings
     finally:
         client.app.dependency_overrides.pop(get_settings, None)
+
+
+@pytest.fixture
+def authenticated_client(client):
+    client.post("/api/auth/login", json={"password": "secret-pass"})
+    return client

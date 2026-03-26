@@ -6,6 +6,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_authenticated
 from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.models import DaySummary, TimelineSegment, VideoFile
@@ -17,7 +18,7 @@ from app.schemas.timeline import (
 )
 from app.services.timeline_builder import WARNING_GAP_SEC, is_effective_gap
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 def _parse_issue_flags(raw_issue_flags: str | None) -> list[str]:

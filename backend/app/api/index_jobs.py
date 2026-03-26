@@ -4,11 +4,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.auth import require_authenticated
 from app.core.db import get_db
 from app.schemas.locate import RebuildResponse
 from app.tasks.index_videos import enqueue_index_job
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 @router.post("/api/index/rebuild", response_model=RebuildResponse)
