@@ -92,3 +92,10 @@ def test_video_stream_returns_404_when_file_record_missing(authenticated_client)
 
     assert response.status_code == 404
     assert response.json() == {"detail": "video not found"}
+
+
+def test_video_stream_requires_authentication(client):
+    response = client.get("/api/videos/999/stream")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}

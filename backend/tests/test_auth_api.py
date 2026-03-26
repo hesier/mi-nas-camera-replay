@@ -17,6 +17,15 @@ def test_login_rejects_wrong_password(client):
     assert response.status_code == 401
 
 
+def test_login_rotates_session_cookie_value(client):
+    first = client.post("/api/auth/login", json={"password": "secret-pass"})
+    second = client.post("/api/auth/login", json={"password": "secret-pass"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["set-cookie"] != second.headers["set-cookie"]
+
+
 def test_auth_status_reflects_cookie_state(authenticated_client):
     response = authenticated_client.get("/api/auth/status")
     assert response.status_code == 200
@@ -25,8 +34,12 @@ def test_auth_status_reflects_cookie_state(authenticated_client):
 
 def test_logout_clears_cookie(authenticated_client):
     response = authenticated_client.post("/api/auth/logout")
+
     assert response.status_code == 200
     assert "Set-Cookie" in response.headers
+    assert response.json() == {"authenticated": False}
+    assert authenticated_client.get("/api/auth/status").json() == {"authenticated": False}
+    assert authenticated_client.get("/api/days", params={"camera": 1}).status_code == 401
 
 
 def test_auth_status_is_false_without_cookie(client):

@@ -41,3 +41,10 @@ def test_rebuild_index_returns_all_scope_payload(authenticated_client, monkeypat
         "scope": "all",
         "day": None,
     }
+
+
+def test_rebuild_index_requires_authentication(client):
+    response = client.post("/api/index/rebuild")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}

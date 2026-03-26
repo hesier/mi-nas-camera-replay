@@ -18,7 +18,7 @@ def login(
 
     response.set_cookie(
         key=COOKIE_NAME,
-        value=build_session_value(settings.app_password),
+        value=build_session_value(),
         httponly=True,
         samesite="Lax",
     )

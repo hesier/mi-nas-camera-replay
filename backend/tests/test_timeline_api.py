@@ -144,6 +144,13 @@ def test_get_timeline_returns_404_when_day_missing(authenticated_client):
     assert response.json() == {"detail": "timeline not found"}
 
 
+def test_get_timeline_requires_authentication(client):
+    response = client.get("/api/timeline", params={"camera": 1, "day": "2026-03-17"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+
+
 def test_get_timeline_omits_small_continuous_gap_from_gaps(
     authenticated_client, sqlite_session
 ):

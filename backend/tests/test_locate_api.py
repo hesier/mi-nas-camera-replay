@@ -73,6 +73,13 @@ def test_locate_returns_segment_when_time_hits_recording(
     }
 
 
+def test_locate_requires_authentication(client):
+    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+
+
 def test_locate_returns_gap_and_next_segment_when_time_hits_gap(
     authenticated_client, sqlite_session
 ):
