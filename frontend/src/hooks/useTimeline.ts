@@ -32,6 +32,7 @@ export function useTimeline(cameraOrDay: number | string | null, maybeDay?: stri
     async function load() {
       setLoading(true);
       setError(null);
+      setData(null);
 
       try {
         const timeline = await getTimeline(cameraNo, currentDay);

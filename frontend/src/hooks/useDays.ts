@@ -20,6 +20,7 @@ export function useDays(cameraNo: number = 1): UseDaysState {
     async function load() {
       setLoading(true);
       setError(null);
+      setData([]);
 
       try {
         const days = await listDays(cameraNo);

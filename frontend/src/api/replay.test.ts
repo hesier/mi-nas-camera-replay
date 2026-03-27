@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { getAuthStatus } from './auth';
+import { listCameras } from './cameras';
 import { getTimeline, listDays, locateAt } from './replay';
 
 const originalFetch = globalThis.fetch;
@@ -186,6 +187,24 @@ describe('replay api', () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/auth/status',
+      expect.objectContaining({
+        credentials: 'include',
+      }),
+    );
+  });
+
+  it('lists cameras with credentials included', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify([{ cameraNo: 1, label: '通道 1' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as typeof fetch;
+
+    await listCameras();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/cameras',
       expect.objectContaining({
         credentials: 'include',
       }),
