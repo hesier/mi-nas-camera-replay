@@ -6,7 +6,11 @@ export default function App() {
   const auth = useAuth();
 
   if (!auth.ready) {
-    return null;
+    return (
+      <main className="app-shell">
+        <p className="panel-note">登录状态检查中...</p>
+      </main>
+    );
   }
 
   if (!auth.authenticated) {

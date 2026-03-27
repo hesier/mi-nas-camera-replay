@@ -18,7 +18,7 @@ vi.mock('../src/api/auth', () => ({
 
 vi.mock('../src/pages/ReplayPage', () => ({
   ReplayPage: ({ onLogout }: { onLogout?: () => Promise<void> }) => (
-    <div>
+    <div aria-label="回放页">
       <span>监控回放工作台</span>
       <button type="button" onClick={() => void onLogout?.()}>
         退出登录
@@ -28,6 +28,16 @@ vi.mock('../src/pages/ReplayPage', () => ({
 }));
 
 describe('App', () => {
+  it('shows loading state while auth status is pending', async () => {
+    getAuthStatusMock.mockImplementation(() => new Promise<AuthStatus>(() => {}));
+    loginMock.mockResolvedValue({ authenticated: true });
+    logoutMock.mockResolvedValue({ authenticated: false });
+
+    render(<App />);
+
+    expect(screen.getByText('登录状态检查中...')).toBeInTheDocument();
+  });
+
   it('renders login page when auth status is false', async () => {
     getAuthStatusMock.mockResolvedValue({ authenticated: false });
     loginMock.mockResolvedValue({ authenticated: true });
@@ -45,7 +55,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('监控回放工作台')).toBeInTheDocument();
+    expect(await screen.findByLabelText('回放页')).toBeInTheDocument();
   });
 
   it('returns to login page after logout succeeds', async () => {

@@ -72,6 +72,10 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
     }
   }
 
+  const emptyMessage = !daysLoading && !timelineLoading && selectedDay == null && days.length === 0
+    ? '该通道暂无录像'
+    : null;
+
   return (
     <main className="app-shell">
       <section className="hero-panel">
@@ -123,6 +127,7 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
 
       <PlayerPanel
         activeSegment={playback.activeSegment}
+        emptyMessage={emptyMessage}
         gapMessage={playback.gapMessage}
         playbackRate={playback.playbackRate}
         playbackState={playback.playbackState}
@@ -136,9 +141,6 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
       >
         {timelineError ? <p className="error-text">{timelineError}</p> : null}
         {timelineLoading ? <p className="panel-note">时间轴加载中...</p> : null}
-        {!daysLoading && !timelineLoading && selectedDay == null && days.length === 0 ? (
-          <p className="empty-text">该通道暂无录像</p>
-        ) : null}
         {selectedDay != null && stableTimeline != null ? (
           <TimelineBar
             day={selectedDay}

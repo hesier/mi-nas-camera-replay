@@ -151,6 +151,7 @@ describe('ReplayPage', () => {
     render(<ReplayPage />);
 
     expect(await screen.findByText('该通道暂无录像')).toBeInTheDocument();
+    expect(screen.queryByText('该时间点无录像，请点击时间轴上的有效片段。')).not.toBeInTheDocument();
     expect(useTimelineMock).toHaveBeenLastCalledWith(2, null);
   });
 
@@ -218,6 +219,7 @@ describe('ReplayPage', () => {
   it('passes null timeline to playback controller while switching camera', async () => {
     useCamerasMock.mockReturnValue({
       data: [
+        { cameraNo: 1, label: '通道 1' },
         { cameraNo: 2, label: '通道 2' },
         { cameraNo: 3, label: '通道 3' },
       ],
@@ -225,7 +227,7 @@ describe('ReplayPage', () => {
       loading: false,
     });
     useDaysMock.mockImplementation((cameraNo) => ({
-      data: cameraNo === 2 ? buildDays('2026-03-21') : [],
+      data: cameraNo === 1 ? buildDays('2026-03-20') : cameraNo === 2 ? buildDays('2026-03-21') : [],
       error: null,
       loading: false,
     }));
@@ -236,6 +238,10 @@ describe('ReplayPage', () => {
     }));
 
     render(<ReplayPage />);
+
+    fireEvent.change(await screen.findByLabelText('回放通道'), {
+      target: { value: '2' },
+    });
 
     await waitFor(() => {
       expect(useDaysMock).toHaveBeenLastCalledWith(2);
