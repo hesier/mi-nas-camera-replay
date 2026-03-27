@@ -7,6 +7,7 @@ interface UseAuthState {
   authenticated: boolean;
   error: string | null;
   loading: boolean;
+  ready: boolean;
   loginWithPassword: (password: string) => Promise<void>;
   refresh: () => Promise<void>;
   logoutCurrent: () => Promise<void>;
@@ -16,6 +17,7 @@ export function useAuth(): UseAuthState {
   const [status, setStatus] = useState<AuthStatus>({ authenticated: false });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
   const requestIdRef = useRef(0);
 
   function beginRequest(): number {
@@ -43,6 +45,7 @@ export function useAuth(): UseAuthState {
     } finally {
       if (isCurrentRequest(requestId)) {
         setLoading(false);
+        setReady(true);
       }
     }
   }
@@ -97,6 +100,7 @@ export function useAuth(): UseAuthState {
     authenticated: status.authenticated,
     error,
     loading,
+    ready,
     loginWithPassword,
     refresh,
     logoutCurrent,
