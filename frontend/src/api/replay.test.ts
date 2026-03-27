@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { getAuthStatus } from './auth';
 import { getTimeline, listDays, locateAt } from './replay';
 
 const originalFetch = globalThis.fetch;
@@ -32,15 +33,32 @@ describe('replay api', () => {
       ),
     ) as typeof fetch;
 
-    const days = await listDays();
+    const days = await listDays(1);
 
     expect(days[0].day).toBe('2026-03-20');
     expect(days[0].segmentCount).toBe(12);
     expect(days[0].hasWarning).toBe(true);
-    expect(globalThis.fetch).toHaveBeenCalledWith('/api/days', {
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/days?camera=1', {
       headers: {
         Accept: 'application/json',
       },
+      credentials: 'include',
+    });
+  });
+
+  it('passes camera query when requesting days', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as typeof fetch;
+
+    await listDays(2);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/days?camera=2', {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
     });
   });
 
@@ -80,12 +98,13 @@ describe('replay api', () => {
 
     vi.stubEnv('VITE_API_BASE_URL', 'http://127.0.0.1:8101');
 
-    const timeline = await getTimeline('2026-03-20');
+    const timeline = await getTimeline(1, '2026-03-20');
 
-    expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8101/api/timeline?day=2026-03-20', {
+    expect(globalThis.fetch).toHaveBeenCalledWith('http://127.0.0.1:8101/api/timeline?camera=1&day=2026-03-20', {
       headers: {
         Accept: 'application/json',
       },
+      credentials: 'include',
     });
     expect(timeline.segments[0].playbackUrl).toBe('http://127.0.0.1:8101/api/videos/278/stream');
   });
@@ -98,7 +117,7 @@ describe('replay api', () => {
       }),
     ) as typeof fetch;
 
-    await expect(getTimeline('2026-03-21')).rejects.toThrow('timeline not found');
+    await expect(getTimeline(1, '2026-03-21')).rejects.toThrow('timeline not found');
   });
 
   it('resolves playback urls for locate response against api base url', async () => {
@@ -140,17 +159,36 @@ describe('replay api', () => {
 
     vi.stubEnv('VITE_API_BASE_URL', 'http://127.0.0.1:8101');
 
-    const located = await locateAt('2026-03-20T00:00:12+08:00');
+    const located = await locateAt(1, '2026-03-20T00:00:12+08:00');
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:8101/api/locate?at=2026-03-20T00%3A00%3A12%2B08%3A00',
+      'http://127.0.0.1:8101/api/locate?camera=1&at=2026-03-20T00%3A00%3A12%2B08%3A00',
       {
         headers: {
           Accept: 'application/json',
         },
+        credentials: 'include',
       },
     );
     expect(located.segment?.playbackUrl).toBe('http://127.0.0.1:8101/api/videos/278/stream');
     expect(located.nextSegment?.playbackUrl).toBe('http://127.0.0.1:8101/api/videos/279/stream');
+  });
+
+  it('requests auth status with credentials included', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ authenticated: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as typeof fetch;
+
+    await getAuthStatus();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/auth/status',
+      expect.objectContaining({
+        credentials: 'include',
+      }),
+    );
   });
 });

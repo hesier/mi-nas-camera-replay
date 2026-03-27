@@ -9,7 +9,7 @@ interface UseDaysState {
   loading: boolean;
 }
 
-export function useDays(): UseDaysState {
+export function useDays(cameraNo: number = 1): UseDaysState {
   const [data, setData] = useState<DaySummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,7 +22,7 @@ export function useDays(): UseDaysState {
       setError(null);
 
       try {
-        const days = await listDays();
+        const days = await listDays(cameraNo);
         if (!cancelled) {
           setData(days);
         }
@@ -42,7 +42,7 @@ export function useDays(): UseDaysState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [cameraNo]);
 
   return { data, error, loading };
 }
