@@ -69,6 +69,7 @@ export function usePlaybackController({
   useEffect(() => {
     requestIdRef.current += 1;
     if (timeline?.segments[0] == null) {
+      setSelectedSecond(0);
       setActiveSegment(null);
       setNextSegment(null);
       setGapMessage(null);

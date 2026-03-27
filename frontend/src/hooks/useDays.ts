@@ -9,12 +9,20 @@ interface UseDaysState {
   loading: boolean;
 }
 
-export function useDays(cameraNo: number = 1): UseDaysState {
+export function useDays(cameraNo: number | null): UseDaysState {
   const [data, setData] = useState<DaySummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(cameraNo != null);
 
   useEffect(() => {
+    if (cameraNo == null) {
+      setData([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    const currentCameraNo = cameraNo;
     let cancelled = false;
 
     async function load() {
@@ -23,7 +31,7 @@ export function useDays(cameraNo: number = 1): UseDaysState {
       setData([]);
 
       try {
-        const days = await listDays(cameraNo);
+        const days = await listDays(currentCameraNo);
         if (!cancelled) {
           setData(days);
         }

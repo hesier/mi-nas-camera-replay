@@ -122,6 +122,7 @@ describe('ReplayPage', () => {
     render(<ReplayPage />);
 
     expect(await screen.findByLabelText('回放通道')).toBeInTheDocument();
+    expect(useDaysMock).toHaveBeenLastCalledWith(1);
   });
 
   it('hides camera picker when only one camera exists', () => {
@@ -212,5 +213,40 @@ describe('ReplayPage', () => {
     await waitFor(() => {
       expect(useTimelineMock).toHaveBeenLastCalledWith(2, null);
     });
+  });
+
+  it('passes null timeline to playback controller while switching camera', async () => {
+    useCamerasMock.mockReturnValue({
+      data: [
+        { cameraNo: 2, label: '通道 2' },
+        { cameraNo: 3, label: '通道 3' },
+      ],
+      error: null,
+      loading: false,
+    });
+    useDaysMock.mockImplementation((cameraNo) => ({
+      data: cameraNo === 2 ? buildDays('2026-03-21') : [],
+      error: null,
+      loading: false,
+    }));
+    useTimelineMock.mockImplementation((_cameraNo, day) => ({
+      data: day == null ? buildTimeline('2026-03-21') : buildTimeline(day),
+      error: null,
+      loading: false,
+    }));
+
+    render(<ReplayPage />);
+
+    await waitFor(() => {
+      expect(useDaysMock).toHaveBeenLastCalledWith(2);
+    });
+
+    expect(usePlaybackControllerMock.mock.calls).toContainEqual([
+      expect.objectContaining({
+        cameraNo: 2,
+        day: null,
+        timeline: null,
+      }),
+    ]);
   });
 });

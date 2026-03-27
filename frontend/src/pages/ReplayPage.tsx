@@ -20,17 +20,17 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
   const [selectedCameraNo, setSelectedCameraNo] = useState<number | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const effectiveCameraNo = selectedCameraNo ?? cameras[0]?.cameraNo ?? 1;
-  const { data: days, error: daysError, loading: daysLoading } = useDays(effectiveCameraNo);
+  const { data: days, error: daysError, loading: daysLoading } = useDays(selectedCameraNo);
   const timelineDay = days.length > 0 ? selectedDay : null;
   const { data: timeline, error: timelineError, loading: timelineLoading } = useTimeline(
-    effectiveCameraNo,
+    selectedCameraNo ?? 1,
     timelineDay,
   );
+  const stableTimeline = timelineDay == null ? null : timeline;
   const playback = usePlaybackController({
-    cameraNo: effectiveCameraNo,
+    cameraNo: selectedCameraNo ?? 1,
     day: selectedDay,
-    timeline,
+    timeline: stableTimeline,
   });
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
       }
       return days[0].day;
     });
-  }, [days, effectiveCameraNo]);
+  }, [days, selectedCameraNo]);
 
   async function handleLogout() {
     if (onLogout == null) {
@@ -139,12 +139,12 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
         {!daysLoading && !timelineLoading && selectedDay == null && days.length === 0 ? (
           <p className="empty-text">该通道暂无录像</p>
         ) : null}
-        {selectedDay != null && timeline != null ? (
+        {selectedDay != null && stableTimeline != null ? (
           <TimelineBar
             day={selectedDay}
             embedded
-            segments={timeline.segments}
-            gaps={timeline.gaps}
+            segments={stableTimeline.segments}
+            gaps={stableTimeline.gaps}
             selectedAt={playback.selectedAt}
             onSelectTime={(second) => {
               void playback.selectSecond(second);
