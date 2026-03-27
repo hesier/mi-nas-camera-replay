@@ -79,39 +79,47 @@ export function ReplayPage({ onLogout }: ReplayPageProps) {
   return (
     <main className="app-shell">
       <section className="hero-panel">
-        <h1>监控回放工作台</h1>
-        <p className="hero-copy">
-          按天查看、时间轴定位与基础回放。
-        </p>
-        <button className="secondary-button" type="button" onClick={() => void handleLogout()}>
-          退出登录
-        </button>
+        <div className="hero-header">
+          <div>
+            <h1>监控回放工作台</h1>
+            <p className="hero-copy">
+              按天查看、时间轴定位与基础回放。
+            </p>
+          </div>
+          <div className="hero-actions">
+            <button className="secondary-button" type="button" onClick={() => void handleLogout()}>
+              退出登录
+            </button>
+          </div>
+        </div>
         {logoutError != null ? <p className="error-text">{logoutError}</p> : null}
       </section>
 
       <section className="top-grid">
-        <section className="panel compact-panel">
+        <section className="panel compact-panel filter-panel">
           {camerasError ? <p className="error-text">{camerasError}</p> : null}
           {camerasLoading ? <p className="panel-note compact-loading-note">通道加载中...</p> : null}
           {daysError ? <p className="error-text">{daysError}</p> : null}
           {daysLoading ? <p className="panel-note compact-loading-note">日期加载中...</p> : null}
-          {cameras.length > 1 ? (
-            <CameraPicker
-              cameras={cameras}
-              selectedCameraNo={selectedCameraNo}
-              onSelectCamera={(cameraNo) => {
-                setSelectedCameraNo(cameraNo);
-                setSelectedDay(null);
+          <div className="filter-row">
+            {cameras.length > 1 ? (
+              <CameraPicker
+                cameras={cameras}
+                selectedCameraNo={selectedCameraNo}
+                onSelectCamera={(cameraNo) => {
+                  setSelectedCameraNo(cameraNo);
+                  setSelectedDay(null);
+                }}
+              />
+            ) : null}
+            <DatePicker
+              days={days}
+              selectedDay={selectedDay}
+              onSelectDay={(day) => {
+                setSelectedDay(day);
               }}
             />
-          ) : null}
-          <DatePicker
-            days={days}
-            selectedDay={selectedDay}
-            onSelectDay={(day) => {
-              setSelectedDay(day);
-            }}
-          />
+          </div>
         </section>
 
         <PlaybackControls

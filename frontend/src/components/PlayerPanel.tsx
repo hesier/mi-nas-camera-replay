@@ -56,7 +56,7 @@ export function PlayerPanel({
     }
 
     if (playbackState === 'playing') {
-      void video.play().catch(() => {});
+      void video.play().catch(() => { });
     }
     if (playbackState === 'paused') {
       video.pause();
@@ -65,10 +65,6 @@ export function PlayerPanel({
 
   return (
     <section className="panel player-panel">
-      <div className="panel-header">
-        <h2>播放器</h2>
-        <span className="panel-note">{selectedAtLabel}</span>
-      </div>
       <div className="video-shell">
         <video
           key={activeSegment?.id ?? 'empty'}
@@ -84,7 +80,7 @@ export function PlayerPanel({
               videoRef.current.currentTime = seekOffsetSec;
             }
             if (videoRef.current != null && playbackState === 'playing') {
-              void videoRef.current.play().catch(() => {});
+              void videoRef.current.play().catch(() => { });
             }
           }}
         />

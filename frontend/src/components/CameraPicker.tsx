@@ -12,8 +12,7 @@ export function CameraPicker({
   onSelectCamera,
 }: CameraPickerProps) {
   return (
-    <label className="field-group compact-field-group">
-      <span className="field-label">回放通道</span>
+    <label className="field-group compact-field-group compact-field-group-no-label">
       <select
         aria-label="回放通道"
         className="field-input"
