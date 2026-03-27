@@ -7,6 +7,7 @@ import type { PlaybackState } from '../hooks/usePlaybackController';
 interface PlayerPanelProps {
   activeSegment: TimelineSegment | null;
   children?: ReactNode;
+  emptyMessage?: string | null;
   gapMessage: string | null;
   playbackRate: number;
   playbackState: PlaybackState;
@@ -18,6 +19,7 @@ interface PlayerPanelProps {
 export function PlayerPanel({
   activeSegment,
   children,
+  emptyMessage,
   gapMessage,
   playbackRate,
   playbackState,
@@ -89,7 +91,7 @@ export function PlayerPanel({
       </div>
       {activeSegment == null ? (
         <p className="empty-text">
-          {gapMessage ?? '该时间点无录像，请点击时间轴上的有效片段。'}
+          {emptyMessage ?? gapMessage ?? '该时间点无录像，请点击时间轴上的有效片段。'}
         </p>
       ) : null}
       {children != null ? <div className="player-panel-footer">{children}</div> : null}

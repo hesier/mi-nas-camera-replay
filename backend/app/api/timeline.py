@@ -6,7 +6,8 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.auth import require_authenticated
+from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.models import DaySummary, TimelineSegment, VideoFile
 from app.schemas.timeline import (
@@ -17,7 +18,7 @@ from app.schemas.timeline import (
 )
 from app.services.timeline_builder import WARNING_GAP_SEC, is_effective_gap
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 def _parse_issue_flags(raw_issue_flags: str | None) -> list[str]:
@@ -61,15 +62,26 @@ def _build_segment_item(
 
 @router.get("/api/timeline", response_model=TimelineResponse)
 def get_timeline(
+    camera: int,
     day: date,
     session: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> TimelineResponse:
+    configured_cameras = {item.camera_no for item in settings.camera_roots}
+    if camera not in configured_cameras:
+        raise HTTPException(status_code=404, detail="camera not found")
+
     day_value = day.isoformat()
-    summary = session.get(DaySummary, day_value)
+    summary = (
+        session.query(DaySummary)
+        .filter(DaySummary.camera_no == camera, DaySummary.day == day_value)
+        .one_or_none()
+    )
     rows = (
         session.query(TimelineSegment, VideoFile)
         .join(VideoFile, VideoFile.id == TimelineSegment.file_id)
-        .filter(TimelineSegment.day == day_value)
+        .filter(TimelineSegment.camera_no == camera, TimelineSegment.day == day_value)
+        .filter(VideoFile.camera_no == camera)
         .order_by(
             TimelineSegment.segment_start_at.asc(),
             TimelineSegment.segment_end_at.asc(),
@@ -113,7 +125,7 @@ def get_timeline(
 
     return TimelineResponse(
         day=day_value,
-        timezone=get_settings().timezone,
+        timezone=settings.timezone,
         summary=TimelineSummary(
             segmentCount=segment_count,
             recordedSeconds=recorded_seconds,

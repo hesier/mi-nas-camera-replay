@@ -9,7 +9,11 @@ interface UseTimelineState {
   loading: boolean;
 }
 
-export function useTimeline(day: string | null): UseTimelineState {
+export function useTimeline(day: string | null): UseTimelineState;
+export function useTimeline(cameraNo: number, day: string | null): UseTimelineState;
+export function useTimeline(cameraOrDay: number | string | null, maybeDay?: string | null): UseTimelineState {
+  const cameraNo = typeof cameraOrDay === 'number' ? cameraOrDay : 1;
+  const day = typeof cameraOrDay === 'number' ? maybeDay ?? null : cameraOrDay;
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,9 +32,10 @@ export function useTimeline(day: string | null): UseTimelineState {
     async function load() {
       setLoading(true);
       setError(null);
+      setData(null);
 
       try {
-        const timeline = await getTimeline(currentDay);
+        const timeline = await getTimeline(cameraNo, currentDay);
         if (!cancelled) {
           setData(timeline);
         }
@@ -51,7 +56,7 @@ export function useTimeline(day: string | null): UseTimelineState {
     return () => {
       cancelled = true;
     };
-  }, [day]);
+  }, [cameraNo, day]);
 
   return { data, error, loading };
 }

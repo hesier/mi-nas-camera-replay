@@ -5,13 +5,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
+from app.api.cameras import router as cameras_router
 from app.api.days import router as days_router
 from app.api.index_jobs import router as index_jobs_router
 from app.api.locate import router as locate_router
 from app.api.timeline import router as timeline_router
 from app.api.videos import router as videos_router
 from app.core.config import Settings, get_settings
-from app.core.db import Base, engine
+from app.core.db import Base, assert_sqlite_schema_compatible, get_engine
 from app.tasks.index_scheduler import start_index_scheduler, stop_index_scheduler
 from app.tasks.index_videos import enqueue_index_job
 
@@ -20,12 +22,14 @@ def trigger_startup_index(*, settings: Settings | None = None):
     current_settings = settings or get_settings()
     if not current_settings.index_on_startup:
         return None
-    return enqueue_index_job(root=current_settings.video_root)
+    return enqueue_index_job(camera_roots=current_settings.camera_roots)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    engine = get_engine()
+    assert_sqlite_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
     startup_index_job = trigger_startup_index(settings=settings)
     scheduler = start_index_scheduler(settings=settings)
@@ -49,7 +53,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth_router)
     app.include_router(days_router)
+    app.include_router(cameras_router)
     app.include_router(timeline_router)
     app.include_router(locate_router)
     app.include_router(index_jobs_router)

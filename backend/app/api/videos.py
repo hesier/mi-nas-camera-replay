@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_authenticated
 from app.core.db import get_db
 from app.models import VideoFile
 from app.services.video_stream import iter_file_range, parse_range_header
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 @router.get("/api/videos/{file_id}/stream")

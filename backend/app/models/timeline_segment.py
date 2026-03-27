@@ -8,6 +8,8 @@ class TimelineSegment(Base):
 
     id = Column(Integer, primary_key=True)
     file_id = Column(Integer, ForeignKey("video_files.id"), nullable=False)
+    # 目前系统仍以单通道为主，先给出默认值 1，后续 Task 3 会按来源写入真实 camera_no
+    camera_no = Column(Integer, nullable=False, server_default=text("1"), default=1)
     day = Column(String, nullable=False)
     segment_start_at = Column(Text, nullable=False)
     segment_end_at = Column(Text, nullable=False)

@@ -4,9 +4,15 @@ from app.models import TimelineSegment, VideoFile
 from app.services.locate_service import locate_at
 
 
-def _make_video_file(file_id: int, issue_flags: str = "[]") -> VideoFile:
+def _make_video_file(
+    file_id: int,
+    issue_flags: str = "[]",
+    *,
+    camera_no: int = 1,
+) -> VideoFile:
     return VideoFile(
         id=file_id,
+        camera_no=camera_no,
         file_path=f"/videos/{file_id}.mp4",
         file_name=f"{file_id}.mp4",
         file_size=1,
@@ -221,3 +227,52 @@ def test_locate_at_keeps_subsecond_precision_when_time_is_inside_segment(sqlite_
     assert result["seekOffsetSec"] == 12.3
     assert result["gap"] is None
     assert result["nextSegment"] is None
+
+
+def test_locate_at_filters_segments_by_camera(sqlite_session):
+    sqlite_session.add_all(
+        [
+            _make_video_file(101, camera_no=1),
+            _make_video_file(102, camera_no=2),
+            TimelineSegment(
+                id=1001,
+                file_id=101,
+                camera_no=1,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:01:00+08:00",
+                duration_sec=60.0,
+                playback_url="/api/videos/101/stream",
+                file_offset_sec=10.0,
+                prev_gap_sec=None,
+                next_gap_sec=None,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=1002,
+                file_id=102,
+                camera_no=2,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:01:00+08:00",
+                duration_sec=60.0,
+                playback_url="/api/videos/102/stream",
+                file_offset_sec=20.0,
+                prev_gap_sec=None,
+                next_gap_sec=None,
+                status="ready",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    result = locate_at(
+        sqlite_session,
+        datetime.fromisoformat("2026-03-18T00:00:15"),
+        camera_no=2,
+    )
+
+    assert result["found"] is True
+    assert result["segment"]["id"] == 1002
+    assert result["segment"]["fileId"] == 102
+    assert result["seekOffsetSec"] == 35.0

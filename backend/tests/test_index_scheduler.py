@@ -3,15 +3,22 @@ from __future__ import annotations
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.main import create_app, trigger_startup_index
 from app.tasks.index_scheduler import (
     get_next_run_at,
     run_scheduled_index_job,
     start_index_scheduler,
 )
+
+
+@pytest.fixture(autouse=True)
+def _settings_required_env(monkeypatch, tmp_path):
+    # Settings 现在要求：至少一个 VIDEO_ROOT_数字 + 非空 APP_PASSWORD
+    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path))
+    monkeypatch.setenv("APP_PASSWORD", "test-password")
 
 
 def test_settings_supports_string_scheduler_time_formats():
@@ -58,10 +65,10 @@ def test_run_scheduled_index_job_uses_configured_root_and_closes_session(
 
     monkeypatch.setattr(
         "app.tasks.index_scheduler.run_index_job",
-        lambda db_session, *, root, target_day=None: called.update(
+        lambda db_session, *, camera_roots, target_day=None: called.update(
             {
                 "session": db_session,
-                "root": root,
+                "camera_roots": camera_roots,
                 "target_day": target_day,
             }
         ),
@@ -74,9 +81,43 @@ def test_run_scheduled_index_job_uses_configured_root_and_closes_session(
 
     assert called == {
         "session": session,
-        "root": str(tmp_path),
+        "camera_roots": Settings(video_root=str(tmp_path)).camera_roots,
         "target_day": None,
     }
+    assert session.closed is True
+
+
+def test_run_scheduled_index_job_uses_video_root_1_when_video_root_not_set(
+    monkeypatch,
+    tmp_path,
+):
+    class FakeSession:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    session = FakeSession()
+    called: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.tasks.index_scheduler.run_index_job",
+        lambda db_session, *, camera_roots, target_day=None: called.update(
+            {
+                "session": db_session,
+                "camera_roots": camera_roots,
+                "target_day": target_day,
+            }
+        ),
+    )
+
+    run_scheduled_index_job(
+        settings=Settings(),
+        session_factory=lambda: session,
+    )
+
+    assert called["camera_roots"][0].video_root == str(tmp_path)
     assert session.closed is True
 
 
@@ -92,6 +133,8 @@ def test_start_index_scheduler_returns_none_when_disabled(monkeypatch):
 
 
 def test_trigger_startup_index_returns_none_when_disabled(monkeypatch):
+    from app.main import trigger_startup_index
+
     monkeypatch.setattr(
         "app.main.enqueue_index_job",
         lambda **_: (_ for _ in ()).throw(AssertionError("不应触发启动补扫")),
@@ -103,6 +146,8 @@ def test_trigger_startup_index_returns_none_when_disabled(monkeypatch):
 
 
 def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
+    from app.main import trigger_startup_index
+
     captured: dict[str, object] = {}
     fake_job = object()
 
@@ -119,7 +164,31 @@ def test_trigger_startup_index_enqueues_background_job(monkeypatch, tmp_path):
     )
 
     assert result is fake_job
-    assert captured["root"] == str(tmp_path)
+    assert captured["camera_roots"] == Settings(video_root=str(tmp_path)).camera_roots
+
+
+def test_trigger_startup_index_uses_video_root_1_when_video_root_not_set(
+    monkeypatch,
+    tmp_path,
+):
+    from app.main import trigger_startup_index
+
+    captured: dict[str, object] = {}
+    fake_job = object()
+
+    monkeypatch.setattr(
+        "app.main.enqueue_index_job",
+        lambda **kwargs: captured.update(kwargs) or fake_job,
+    )
+
+    result = trigger_startup_index(
+        settings=Settings(
+            index_on_startup=True,
+        ),
+    )
+
+    assert result is fake_job
+    assert captured["camera_roots"][0].video_root == str(tmp_path)
 
 
 def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path):
@@ -156,9 +225,24 @@ def test_start_index_scheduler_builds_and_starts_scheduler(monkeypatch, tmp_path
 
 
 def test_app_lifespan_starts_and_stops_index_scheduler(monkeypatch):
+    from app.main import create_app
+
     events: dict[str, object] = {}
     startup_job = object()
     scheduler_handle = object()
+
+    # lifespan 内会做 schema check / create_all，需要确保使用测试 engine，
+    # 避免命中工作区真实数据库文件。
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    monkeypatch.setattr("app.main.get_engine", lambda: engine)
 
     monkeypatch.setattr(
         "app.main.trigger_startup_index",

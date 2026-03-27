@@ -8,6 +8,7 @@ import { findSegmentAtSecond } from '../utils/timeline';
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'gap' | 'error';
 
 interface UsePlaybackControllerOptions {
+  cameraNo?: number;
   day: string | null;
   timeline: TimelineResponse | null;
 }
@@ -52,6 +53,7 @@ function getPreciseSecondOfDay(isoValue: string): number {
 }
 
 export function usePlaybackController({
+  cameraNo = 1,
   day,
   timeline,
 }: UsePlaybackControllerOptions): UsePlaybackControllerResult {
@@ -67,6 +69,7 @@ export function usePlaybackController({
   useEffect(() => {
     requestIdRef.current += 1;
     if (timeline?.segments[0] == null) {
+      setSelectedSecond(0);
       setActiveSegment(null);
       setNextSegment(null);
       setGapMessage(null);
@@ -82,7 +85,7 @@ export function usePlaybackController({
     setGapMessage(null);
     setSeekOffsetSec(firstSegment.fileOffsetSec);
     setPlaybackState('paused');
-  }, [timeline?.day]);
+  }, [cameraNo, timeline?.day]);
 
   async function selectSecond(second: number): Promise<void> {
     setSelectedSecond(second);
@@ -107,7 +110,7 @@ export function usePlaybackController({
 
     setPlaybackState('loading');
     try {
-      const response = await locateAt(secondOfDayToIso(day, second));
+      const response = await locateAt(cameraNo, secondOfDayToIso(day, second));
       if (currentRequestId !== requestIdRef.current) {
         return;
       }

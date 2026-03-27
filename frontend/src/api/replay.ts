@@ -14,12 +14,24 @@ function normalizeSegment(segment: TimelineSegment): TimelineSegment {
   };
 }
 
-export function listDays(): Promise<DaySummary[]> {
-  return request<DaySummary[]>('/api/days');
+export function listDays(cameraNo: number = 1): Promise<DaySummary[]> {
+  const query = new URLSearchParams({ camera: String(cameraNo) });
+  return request<DaySummary[]>(`/api/days?${query.toString()}`);
 }
 
-export async function getTimeline(day: string): Promise<TimelineResponse> {
-  const query = new URLSearchParams({ day });
+export function getTimeline(day: string): Promise<TimelineResponse>;
+export function getTimeline(cameraNo: number, day: string): Promise<TimelineResponse>;
+export async function getTimeline(cameraOrDay: number | string, maybeDay?: string): Promise<TimelineResponse> {
+  const cameraNo = typeof cameraOrDay === 'number' ? cameraOrDay : 1;
+  const day = typeof cameraOrDay === 'number' ? maybeDay : cameraOrDay;
+  if (day == null) {
+    throw new Error('day is required');
+  }
+
+  const query = new URLSearchParams({
+    camera: String(cameraNo),
+    day,
+  });
   const response = await request<TimelineResponse>(`/api/timeline?${query.toString()}`);
   return {
     ...response,
@@ -27,8 +39,19 @@ export async function getTimeline(day: string): Promise<TimelineResponse> {
   };
 }
 
-export async function locateAt(at: string): Promise<LocateResponse> {
-  const query = new URLSearchParams({ at });
+export function locateAt(at: string): Promise<LocateResponse>;
+export function locateAt(cameraNo: number, at: string): Promise<LocateResponse>;
+export async function locateAt(cameraOrAt: number | string, maybeAt?: string): Promise<LocateResponse> {
+  const cameraNo = typeof cameraOrAt === 'number' ? cameraOrAt : 1;
+  const at = typeof cameraOrAt === 'number' ? maybeAt : cameraOrAt;
+  if (at == null) {
+    throw new Error('at is required');
+  }
+
+  const query = new URLSearchParams({
+    camera: String(cameraNo),
+    at,
+  });
   const response = await request<LocateResponse>(`/api/locate?${query.toString()}`);
   return {
     ...response,

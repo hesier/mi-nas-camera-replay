@@ -1,8 +1,10 @@
 import os
 import subprocess
 import sys
+import sqlite3
 from pathlib import Path
 
+import pytest
 from sqlalchemy import Integer, inspect, text
 
 
@@ -22,6 +24,7 @@ def test_spec_columns_exist(sqlite_session):
         table_columns[table] = {row[1] for row in columns}
 
     assert {
+        "camera_no",
         "file_path",
         "file_name",
         "file_size",
@@ -44,6 +47,7 @@ def test_spec_columns_exist(sqlite_session):
     } <= table_columns["video_files"]
 
     assert {
+        "camera_no",
         "file_id",
         "day",
         "segment_start_at",
@@ -57,6 +61,8 @@ def test_spec_columns_exist(sqlite_session):
     } <= table_columns["timeline_segments"]
 
     assert {
+        "id",
+        "camera_no",
         "day",
         "first_segment_at",
         "last_segment_at",
@@ -94,10 +100,16 @@ def test_timeline_file_offset_has_schema_default_zero(sqlite_session):
     assert file_offset_col[4] in {"0", "0.0"}
 
 
-def test_day_summary_day_is_primary_key(sqlite_session):
+def test_day_summary_id_is_primary_key(sqlite_session):
     inspector = inspect(sqlite_session.bind)
     pk = inspector.get_pk_constraint("day_summaries")
-    assert pk["constrained_columns"] == ["day"]
+    assert pk["constrained_columns"] == ["id"]
+
+
+def test_day_summaries_camera_day_is_unique(sqlite_session):
+    inspector = inspect(sqlite_session.bind)
+    uniques = inspector.get_unique_constraints("day_summaries")
+    assert any(set(u.get("column_names") or []) == {"camera_no", "day"} for u in uniques)
 
 
 def test_timeline_file_id_foreign_key_exists(sqlite_session):
@@ -125,3 +137,176 @@ def test_import_db_without_video_root_env():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_old_day_summaries_schema_raises_explicit_error(tmp_path):
+    # 模拟旧版数据库：day_summaries(day TEXT PRIMARY KEY, ...)
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "CREATE TABLE day_summaries (day TEXT PRIMARY KEY, updated_at TEXT NOT NULL)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    # 错误信息必须给出明确的恢复动作（删除当前库文件/或调整 sqlite_url）
+    message = str(excinfo.value)
+    assert "legacy.db" in message
+    assert "删除" in message
+
+
+def test_old_video_files_schema_missing_camera_no_raises_explicit_error(tmp_path):
+    # 模拟旧版数据库：video_files 已存在但缺少 camera_no
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE video_files (
+                id INTEGER PRIMARY KEY,
+                file_path TEXT NOT NULL UNIQUE,
+                file_name TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                file_mtime INTEGER NOT NULL,
+                time_source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "video_files" in message
+    assert "legacy.db" in message
+    assert "删除" in message
+
+
+def test_old_timeline_segments_schema_missing_camera_no_raises_explicit_error(tmp_path):
+    # 模拟旧版数据库：timeline_segments 已存在但缺少 camera_no
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE timeline_segments (
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER NOT NULL,
+                day TEXT NOT NULL,
+                segment_start_at TEXT NOT NULL,
+                segment_end_at TEXT NOT NULL,
+                duration_sec REAL NOT NULL,
+                playback_url TEXT NOT NULL,
+                file_offset_sec REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "timeline_segments" in message
+    assert "legacy.db" in message
+    assert "删除" in message
+
+
+def test_day_summaries_missing_camera_day_unique_constraint_raises_explicit_error(tmp_path):
+    # 模拟“半升级”数据库：列已存在，但缺少 (camera_no, day) 联合唯一约束
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE day_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                camera_no INTEGER NOT NULL DEFAULT 1,
+                day TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "day_summaries" in message
+    assert "唯一" in message
+    assert "legacy.db" in message
+    assert "删除" in message
+
+
+def test_day_summaries_wrong_primary_key_even_with_id_column_raises_explicit_error(
+    tmp_path,
+):
+    # 模拟“半升级”数据库：补了 id 列 + 唯一约束，但主键仍然是 day
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE day_summaries (
+                day TEXT PRIMARY KEY,
+                id INTEGER,
+                camera_no INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL,
+                UNIQUE(camera_no, day)
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    from sqlalchemy import create_engine
+
+    from app.core.db import assert_sqlite_schema_compatible
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", future=True)
+    with pytest.raises(RuntimeError) as excinfo:
+        assert_sqlite_schema_compatible(engine)
+
+    message = str(excinfo.value)
+    assert "day_summaries" in message
+    assert "主键" in message
+    assert "id" in message
+    assert "legacy.db" in message

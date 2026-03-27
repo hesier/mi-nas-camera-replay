@@ -27,7 +27,7 @@ def _make_video_file(file_id: int, file_path: str, file_size: int) -> VideoFile:
 
 
 def test_video_stream_returns_full_file_when_range_header_missing(
-    client,
+    authenticated_client,
     sqlite_session,
     tmp_path,
 ):
@@ -37,7 +37,7 @@ def test_video_stream_returns_full_file_when_range_header_missing(
     sqlite_session.add(_make_video_file(101, str(file_path), len(content)))
     sqlite_session.commit()
 
-    response = client.get("/api/videos/101/stream")
+    response = authenticated_client.get("/api/videos/101/stream")
 
     assert response.status_code == 200
     assert response.content == content
@@ -46,14 +46,16 @@ def test_video_stream_returns_full_file_when_range_header_missing(
     assert response.headers["content-type"] == "video/mp4"
 
 
-def test_video_stream_supports_explicit_byte_range(client, sqlite_session, tmp_path):
+def test_video_stream_supports_explicit_byte_range(
+    authenticated_client, sqlite_session, tmp_path
+):
     file_path = tmp_path / "sample.mp4"
     content = b"abcdefghijklmnopqrstuvwxyz"
     file_path.write_bytes(content)
     sqlite_session.add(_make_video_file(102, str(file_path), len(content)))
     sqlite_session.commit()
 
-    response = client.get(
+    response = authenticated_client.get(
         "/api/videos/102/stream",
         headers={"Range": "bytes=5-9"},
     )
@@ -66,14 +68,16 @@ def test_video_stream_supports_explicit_byte_range(client, sqlite_session, tmp_p
     assert response.headers["content-type"] == "video/mp4"
 
 
-def test_video_stream_returns_416_for_invalid_range(client, sqlite_session, tmp_path):
+def test_video_stream_returns_416_for_invalid_range(
+    authenticated_client, sqlite_session, tmp_path
+):
     file_path = tmp_path / "sample.mp4"
     content = b"0123456789"
     file_path.write_bytes(content)
     sqlite_session.add(_make_video_file(103, str(file_path), len(content)))
     sqlite_session.commit()
 
-    response = client.get(
+    response = authenticated_client.get(
         "/api/videos/103/stream",
         headers={"Range": "bytes=20-30"},
     )
@@ -83,8 +87,15 @@ def test_video_stream_returns_416_for_invalid_range(client, sqlite_session, tmp_
     assert response.headers["content-range"] == "bytes */10"
 
 
-def test_video_stream_returns_404_when_file_record_missing(client):
-    response = client.get("/api/videos/999/stream")
+def test_video_stream_returns_404_when_file_record_missing(authenticated_client):
+    response = authenticated_client.get("/api/videos/999/stream")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "video not found"}
+
+
+def test_video_stream_requires_authentication(client):
+    response = client.get("/api/videos/999/stream")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}

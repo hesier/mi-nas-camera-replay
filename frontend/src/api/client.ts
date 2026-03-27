@@ -32,6 +32,7 @@ async function parseError(response: Response): Promise<string> {
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(resolveApiUrl(path), {
+    credentials: 'include',
     ...init,
     headers: {
       Accept: 'application/json',

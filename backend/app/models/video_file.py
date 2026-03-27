@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, Integer, String, Text
+from sqlalchemy import Column, Float, Integer, String, Text, text
 
 from app.core.db import Base
 
@@ -7,6 +7,8 @@ class VideoFile(Base):
     __tablename__ = "video_files"
 
     id = Column(Integer, primary_key=True)
+    # 目前系统仍以单通道为主，先给出默认值 1，后续 Task 3 会按文件/配置写入真实 camera_no
+    camera_no = Column(Integer, nullable=False, server_default=text("1"), default=1)
     file_path = Column(Text, unique=True, nullable=False)
     file_name = Column(String, nullable=False)
     file_size = Column(Integer, nullable=False)

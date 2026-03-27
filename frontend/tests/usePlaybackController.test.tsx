@@ -5,7 +5,7 @@ import { usePlaybackController } from '../src/hooks/usePlaybackController';
 import type { LocateResponse, TimelineResponse } from '../src/types/api';
 
 const { locateAtMock } = vi.hoisted(() => ({
-  locateAtMock: vi.fn<Promise<LocateResponse>, [string]>(),
+  locateAtMock: vi.fn<Promise<LocateResponse>, [number, string]>(),
 }));
 
 vi.mock('../src/api/replay', async () => {
@@ -108,6 +108,7 @@ describe('usePlaybackController', () => {
     });
     expect(result.current.activeSegment).toBeNull();
     expect(result.current.gapMessage).toContain('该时间点无录像');
+    expect(locateAtMock).toHaveBeenCalledWith(1, '2026-03-20T03:10:20+08:00');
   });
 
   it('autoplays next segment when gap is within 2 seconds', async () => {
@@ -222,5 +223,32 @@ describe('usePlaybackController', () => {
       expect(result.current.playbackState).toBe('gap');
     });
     expect(result.current.activeSegment).toBeNull();
+  });
+
+  it('passes camera number when remote locate is required', async () => {
+    locateAtMock.mockResolvedValue({
+      found: false,
+      segment: null,
+      seekOffsetSec: null,
+      gap: {
+        startAt: '2026-03-20T03:10:00+08:00',
+        endAt: '2026-03-20T03:10:40+08:00',
+      },
+      nextSegment: gapTimeline.segments[1],
+    });
+
+    const { result } = renderHook(() =>
+      usePlaybackController({
+        cameraNo: 2,
+        day: gapTimeline.day,
+        timeline: gapTimeline,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.selectSecond(3 * 3600 + 10 * 60 + 20);
+    });
+
+    expect(locateAtMock).toHaveBeenCalledWith(2, '2026-03-20T03:10:20+08:00');
   });
 });

@@ -60,3 +60,12 @@ export interface RebuildResponse {
   scope: string;
   day: string | null;
 }
+
+export interface CameraItem {
+  cameraNo: number;
+  label: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+}

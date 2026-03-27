@@ -1,16 +1,31 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_authenticated
+from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.models import DaySummary
 from app.schemas.day import DayItem
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated)])
 
 
 @router.get("/api/days", response_model=list[DayItem])
-def list_days(session: Session = Depends(get_db)) -> list[DayItem]:
-    rows = session.query(DaySummary).order_by(DaySummary.day.desc()).all()
+def list_days(
+    camera: int,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[DayItem]:
+    configured_cameras = {item.camera_no for item in settings.camera_roots}
+    if camera not in configured_cameras:
+        raise HTTPException(status_code=404, detail="camera not found")
+
+    rows = (
+        session.query(DaySummary)
+        .filter(DaySummary.camera_no == camera)
+        .order_by(DaySummary.day.desc())
+        .all()
+    )
     return [
         DayItem(
             day=row.day,

@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.db import Base
+from app.core.config import CameraRoot, get_settings
 from app.models import DaySummary, IndexJob, TimelineSegment, VideoFile
 
 
@@ -39,6 +40,7 @@ def sqlite_session():
 @pytest.fixture
 def existing_record():
     return VideoFile(
+        camera_no=1,
         file_path="/videos/00_20260317000000_20260317001000.mp4",
         file_name="00_20260317000000_20260317001000.mp4",
         file_size=123,
@@ -72,11 +74,22 @@ def incoming_file():
 
 
 @pytest.fixture
-def client(sqlite_session):
+def client(sqlite_session, monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     from app.core.db import get_db
-    from app.main import create_app
+    # 默认测试配置两个通道，便于按通道查询测试
+    monkeypatch.setenv("VIDEO_ROOT_1", str(tmp_path / "cam1"))
+    monkeypatch.setenv("VIDEO_ROOT_2", str(tmp_path / "cam2"))
+    monkeypatch.setenv("APP_PASSWORD", "secret-pass")
+    get_settings.cache_clear()
+
+    import app.main as app_main
+
+    # 避免 lifespan 中使用工作区真实 sqlite_url（例如 ./replay.db），确保测试完全 hermetic。
+    monkeypatch.setattr(app_main, "get_engine", lambda: sqlite_session.get_bind())
+
+    create_app = app_main.create_app
 
     app = create_app()
 
@@ -89,3 +102,27 @@ def client(sqlite_session):
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def settings_override(client, tmp_path):
+    settings = SimpleNamespace(
+        timezone="Asia/Shanghai",
+        app_password="secret-pass",
+        camera_roots=[
+            CameraRoot(camera_no=1, video_root=str(tmp_path / "cam1")),
+            CameraRoot(camera_no=3, video_root=str(tmp_path / "cam3")),
+        ],
+    )
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        yield settings
+    finally:
+        client.app.dependency_overrides.pop(get_settings, None)
+
+
+@pytest.fixture
+def authenticated_client(client):
+    client.post("/api/auth/login", json={"password": "secret-pass"})
+    return client

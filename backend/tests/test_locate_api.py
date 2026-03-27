@@ -1,9 +1,10 @@
 from app.models import TimelineSegment, VideoFile
 
 
-def _make_video_file(file_id: int) -> VideoFile:
+def _make_video_file(file_id: int, *, camera_no: int = 1) -> VideoFile:
     return VideoFile(
         id=file_id,
+        camera_no=camera_no,
         file_path=f"/videos/{file_id}.mp4",
         file_name=f"{file_id}.mp4",
         file_size=1,
@@ -26,12 +27,15 @@ def _make_video_file(file_id: int) -> VideoFile:
     )
 
 
-def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session):
+def test_locate_returns_segment_when_time_hits_recording(
+    authenticated_client, sqlite_session
+):
     sqlite_session.add(_make_video_file(21))
     sqlite_session.add(
         TimelineSegment(
             id=301,
             file_id=21,
+            camera_no=1,
             day="2026-03-18",
             segment_start_at="2026-03-18T00:00:00+08:00",
             segment_end_at="2026-03-18T00:01:00+08:00",
@@ -45,7 +49,9 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"at": "2026-03-18T00:00:15"})
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"}
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -67,13 +73,23 @@ def test_locate_returns_segment_when_time_hits_recording(client, sqlite_session)
     }
 
 
-def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_session):
+def test_locate_requires_authentication(client):
+    response = client.get("/api/locate", params={"camera": 1, "at": "2026-03-18T00:00:15"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+
+
+def test_locate_returns_gap_and_next_segment_when_time_hits_gap(
+    authenticated_client, sqlite_session
+):
     sqlite_session.add_all([_make_video_file(31), _make_video_file(32)])
     sqlite_session.add_all(
         [
             TimelineSegment(
                 id=401,
                 file_id=31,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:00:00+08:00",
                 segment_end_at="2026-03-18T00:05:00+08:00",
@@ -87,6 +103,7 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
             TimelineSegment(
                 id=402,
                 file_id=32,
+                camera_no=1,
                 day="2026-03-18",
                 segment_start_at="2026-03-18T00:05:40+08:00",
                 segment_end_at="2026-03-18T00:10:40+08:00",
@@ -101,7 +118,9 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
     )
     sqlite_session.commit()
 
-    response = client.get("/api/locate", params={"at": "2026-03-18T00:05:20"})
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 1, "at": "2026-03-18T00:05:20"}
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -124,3 +143,59 @@ def test_locate_returns_gap_and_next_segment_when_time_hits_gap(client, sqlite_s
             "issueFlags": ["gap_before"],
         },
     }
+
+
+def test_locate_returns_404_for_unknown_camera(authenticated_client):
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 99, "at": "2026-03-18T00:05:20"}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "camera not found"}
+
+
+def test_locate_filters_segments_by_camera(authenticated_client, sqlite_session):
+    sqlite_session.add_all(
+        [
+            _make_video_file(41, camera_no=1),
+            _make_video_file(42, camera_no=2),
+            TimelineSegment(
+                id=411,
+                file_id=41,
+                camera_no=1,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:01:00+08:00",
+                duration_sec=60.0,
+                playback_url="/api/videos/41/stream",
+                file_offset_sec=10.0,
+                prev_gap_sec=None,
+                next_gap_sec=None,
+                status="ready",
+            ),
+            TimelineSegment(
+                id=412,
+                file_id=42,
+                camera_no=2,
+                day="2026-03-18",
+                segment_start_at="2026-03-18T00:00:00+08:00",
+                segment_end_at="2026-03-18T00:01:00+08:00",
+                duration_sec=60.0,
+                playback_url="/api/videos/42/stream",
+                file_offset_sec=20.0,
+                prev_gap_sec=None,
+                next_gap_sec=None,
+                status="ready",
+            ),
+        ]
+    )
+    sqlite_session.commit()
+
+    response = authenticated_client.get(
+        "/api/locate", params={"camera": 2, "at": "2026-03-18T00:00:15"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["segment"]["id"] == 412
+    assert response.json()["segment"]["fileId"] == 42
+    assert response.json()["seekOffsetSec"] == 35.0
