@@ -1,8 +1,9 @@
 {
-  "name": "nas-camera-replay-frontend",
+  "name": "mi-nas-camera-replay-frontend",
   "private": true,
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "test": "vitest run"
   },
   "dependencies": {

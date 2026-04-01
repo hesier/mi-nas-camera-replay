@@ -1,11 +1,61 @@
-# NAS Camera Replay
+# MI NAS Camera Replay
 
 本项目用于本地查看 NAS 中的小米摄像头回放文件，当前阶段聚焦多摄像头、单密码登录、本地网页访问。
 
+## Docker 部署
+
+当前仓库已支持单镜像部署：
+
+```bash
+docker build -t mi-nas-camera-replay .
+docker run --rm \
+  -p 8000:8000 \
+  --env-file backend/.env \
+  -v /你的视频目录1:/data/cam1:ro \
+  -v /你的视频目录2:/data/cam2:ro \
+  -v /你的数据目录:/app/backend/data \
+  mi-nas-camera-replay
+```
+
+建议 `.env` 至少这样配置：
+
+```env
+VIDEO_ROOT_1=/data/cam1
+VIDEO_ROOT_2=/data/cam2
+APP_PASSWORD=change-me
+SQLITE_URL=sqlite:///./data/replay.db
+INDEX_ON_STARTUP=false
+INDEX_SCHEDULER_ENABLED=false
+TIMEZONE=Asia/Shanghai
+```
+
+说明：
+
+- 容器启动后，页面与 API 统一由 `http://127.0.0.1:8000` 提供
+- 视频目录建议以只读方式挂载
+- SQLite 文件建议单独挂载持久化目录，避免容器删除后数据丢失
+
+也可以直接使用 [docker-compose.yml](./docker-compose.yml)：
+
+```bash
+HOST_VIDEO_ROOT_1=/你的视频目录1 \
+HOST_VIDEO_ROOT_2=/你的视频目录2 \
+HOST_DATA_DIR=./data \
+docker compose up -d --build
+```
+
+补充说明：
+
+- `docker-compose.yml` 默认读取 `backend/.env`
+- Compose 版本默认把宿主机视频目录挂到容器内的 `./videos/cam1`、`./videos/cam2`
+- 因此 `backend/.env` 中的 `VIDEO_ROOT_1`、`VIDEO_ROOT_2` 建议保持为 `./videos/cam1`、`./videos/cam2`
+- 如果你只有一个摄像头，可以只关注 `HOST_VIDEO_ROOT_1`，第二个挂载保持默认空目录也不会影响启动
+- 如果你改过 `backend/.env` 里的 `VIDEO_ROOT_n` 路径，记得同步修改 Compose 里的容器挂载目标
+
 ## 目录说明
 
-- [backend/README.md](/Users/siyu/develop/ai/mi/backend/README.md)：后端启动、`.env` 配置、初始化扫描、定时索引
-- [frontend/README.md](/Users/siyu/develop/ai/mi/frontend/README.md)：前端开发启动、接口代理、测试与构建
+- [backend/README.md](./backend/README.md)：后端启动、`.env` 配置、初始化扫描、定时索引
+- [frontend/README.md](./frontend/README.md)：前端开发启动、接口代理、测试与构建
 
 ## 快速启动
 

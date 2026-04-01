@@ -37,7 +37,7 @@ npm run dev
 
 因此本地开发时，不需要额外设置 `VITE_API_BASE_URL`。
 
-如果后端不是运行在 `127.0.0.1:8000`，则需要调整 [vite.config.ts](/Users/siyu/develop/ai/mi/frontend/vite.config.ts) 中的代理目标，或显式配置 `VITE_API_BASE_URL`。
+如果后端不是运行在 `127.0.0.1:8000`，则需要调整 [vite.config.ts](./vite.config.ts) 中的代理目标，或显式配置 `VITE_API_BASE_URL`。
 
 注意：
 

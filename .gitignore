@@ -18,3 +18,5 @@ htmlcov/
 .worktrees/
 backend/__pycache__/
 frontend/.vite/
+backend/videos/
+data/

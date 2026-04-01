@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import router as auth_router
 from app.api.cameras import router as cameras_router
@@ -25,6 +28,39 @@ def trigger_startup_index(*, settings: Settings | None = None):
     return enqueue_index_job(camera_roots=current_settings.camera_roots)
 
 
+def get_frontend_dist_dir() -> Path:
+    return Path(__file__).resolve().parent / "static"
+
+
+def configure_frontend(app: FastAPI) -> None:
+    frontend_dist_dir = get_frontend_dist_dir()
+    index_file = frontend_dist_dir / "index.html"
+    if not index_file.is_file():
+        return
+
+    assets_dir = frontend_dist_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+
+    @app.get("/", include_in_schema=False)
+    def serve_frontend_index():
+        return FileResponse(index_file)
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend_route(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        requested_path = (frontend_dist_dir / full_path).resolve()
+        if frontend_dist_dir.resolve() not in requested_path.parents:
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        if requested_path.is_file():
+            return FileResponse(requested_path)
+
+        return FileResponse(index_file)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -42,7 +78,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="NAS Camera Replay", lifespan=lifespan)
+    app = FastAPI(title="MI NAS Camera Replay", lifespan=lifespan)
     settings = get_settings()
 
     app.add_middleware(
@@ -60,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(locate_router)
     app.include_router(index_jobs_router)
     app.include_router(videos_router)
+    configure_frontend(app)
     return app
 
 
