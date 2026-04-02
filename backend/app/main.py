@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MI NAS Camera Replay", lifespan=lifespan)
+    app = FastAPI(title="Xiaomi NAS Camera Replay", lifespan=lifespan)
     settings = get_settings()
 
     app.add_middleware(

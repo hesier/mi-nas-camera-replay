@@ -39,9 +39,9 @@ cp .env.example .env
 ```env
 VIDEO_ROOT_1=./videos/cam1
 VIDEO_ROOT_2=./videos/cam2
-APP_PASSWORD=change-me
-INDEX_ON_STARTUP=false
-INDEX_SCHEDULER_ENABLED=false
+APP_PASSWORD=123456
+INDEX_ON_STARTUP=true
+INDEX_SCHEDULER_ENABLED=true
 INDEX_SCHEDULER_TIME=03:00
 SQLITE_URL=sqlite:///./replay.db
 TIMEZONE=Asia/Shanghai

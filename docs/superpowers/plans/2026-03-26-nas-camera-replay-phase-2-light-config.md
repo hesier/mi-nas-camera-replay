@@ -199,7 +199,7 @@ class Settings(BaseSettings):
 
 ```env
 VIDEO_ROOT_1=./videos/cam1
-APP_PASSWORD=change-me
+APP_PASSWORD=123456
 ```
 
 - [ ] **Step 9: 重新运行测试**
@@ -802,7 +802,7 @@ git commit -m "feat: add login gate and camera switcher"
 ```md
 VIDEO_ROOT_1=/nas/cam1
 VIDEO_ROOT_2=/nas/cam2
-APP_PASSWORD=change-me
+APP_PASSWORD=123456
 ```
 
 文档必须明确：

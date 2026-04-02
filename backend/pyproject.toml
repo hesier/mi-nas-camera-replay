@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mi-nas-camera-replay-backend"
+name = "xiaomi-nas-camera-replay-backend"
 version = "0.1.0"
 dependencies = [
   "fastapi",

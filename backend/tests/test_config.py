@@ -49,7 +49,7 @@ def test_settings_load_multiple_video_roots_and_password(monkeypatch, tmp_path):
             [
                 "VIDEO_ROOT_2=./videos/cam2",
                 "VIDEO_ROOT_1=./videos/cam1",
-                "APP_PASSWORD=change-me",
+                "APP_PASSWORD=123456",
             ]
         ),
         encoding="utf-8",
@@ -58,7 +58,7 @@ def test_settings_load_multiple_video_roots_and_password(monkeypatch, tmp_path):
 
     settings = Settings()
 
-    assert settings.app_password == "change-me"
+    assert settings.app_password == "123456"
     assert settings.camera_roots == [
         CameraRoot(camera_no=1, video_root="./videos/cam1"),
         CameraRoot(camera_no=2, video_root="./videos/cam2"),
@@ -76,7 +76,7 @@ def test_settings_reject_overlapping_video_roots(monkeypatch, tmp_path):
             [
                 "VIDEO_ROOT_1=./videos",
                 "VIDEO_ROOT_2=./videos/cam2",
-                "APP_PASSWORD=change-me",
+                "APP_PASSWORD=123456",
             ]
         ),
         encoding="utf-8",
@@ -96,7 +96,7 @@ def test_settings_require_at_least_one_video_root(monkeypatch, tmp_path):
     dotenv_path.write_text(
         "\n".join(
             [
-                "APP_PASSWORD=change-me",
+                "APP_PASSWORD=123456",
             ]
         ),
         encoding="utf-8",
@@ -141,7 +141,7 @@ def test_settings_require_video_root_legacy_and_video_root_1_consistent(
             [
                 "VIDEO_ROOT=/tmp/nas-videos/legacy",
                 "VIDEO_ROOT_1=/tmp/nas-videos/cam1",
-                "APP_PASSWORD=change-me",
+                "APP_PASSWORD=123456",
             ]
         ),
         encoding="utf-8",

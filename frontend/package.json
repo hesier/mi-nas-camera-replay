@@ -1,5 +1,5 @@
 {
-  "name": "mi-nas-camera-replay-frontend",
+  "name": "xiaomi-nas-camera-replay-frontend",
   "private": true,
   "scripts": {
     "dev": "vite",

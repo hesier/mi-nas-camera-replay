@@ -1,56 +1,83 @@
-# MI NAS Camera Replay
+# Xiaomi NAS Camera Replay
+
+> 提示：本仓库主要通过 Codex + Vibe Coding 方式进行开发与迭代。
 
 本项目用于本地查看 NAS 中的小米摄像头回放文件，当前阶段聚焦多摄像头、单密码登录、本地网页访问。
 
 ## Docker 部署
 
-当前仓库已支持单镜像部署：
+先在项目根目录创建 `.env`：
 
 ```bash
-docker build -t mi-nas-camera-replay .
+cat > .env <<'EOF'
+# 多通道视频目录（必填，数字从 1 开始）
+VIDEO_ROOT_1=/videos/cam1
+VIDEO_ROOT_2=/videos/cam2
+
+# 应用访问密码（必填，修改为自己的密码）
+APP_PASSWORD=123456
+
+# 服务启动时是否自动提交一次后台补扫任务，建议开启
+INDEX_ON_STARTUP=true
+
+# 是否开启内建的每日自动索引调度器，建议开启
+INDEX_SCHEDULER_ENABLED=true
+# 每日自动索引执行时间，格式为 HH:MM
+INDEX_SCHEDULER_TIME=03:00
+
+# SQLite 数据库路径，如果修改了视频目录，建议删除等待程序自动生成
+SQLITE_URL=sqlite:///./data/replay.db
+
+# 业务时区
+TIMEZONE=Asia/Shanghai
+EOF
+```
+
+然后直接使用 Docker 镜像启动：
+
+```bash
 docker run --rm \
   -p 8000:8000 \
-  --env-file backend/.env \
-  -v /你的视频目录1:/data/cam1:ro \
-  -v /你的视频目录2:/data/cam2:ro \
-  -v /你的数据目录:/app/backend/data \
-  mi-nas-camera-replay
+  --env-file .env \
+  -v /你的视频目录1:/videos/cam1:ro \
+  -v /你的视频目录2:/videos/cam2:ro \
+  -v ./data:/app/backend/data \
+  hesier/mi-nas-camera-replay:latest
 ```
-
-建议 `.env` 至少这样配置：
-
-```env
-VIDEO_ROOT_1=/data/cam1
-VIDEO_ROOT_2=/data/cam2
-APP_PASSWORD=change-me
-SQLITE_URL=sqlite:///./data/replay.db
-INDEX_ON_STARTUP=false
-INDEX_SCHEDULER_ENABLED=false
-TIMEZONE=Asia/Shanghai
-```
-
-说明：
-
-- 容器启动后，页面与 API 统一由 `http://127.0.0.1:8000` 提供
-- 视频目录建议以只读方式挂载
-- SQLite 文件建议单独挂载持久化目录，避免容器删除后数据丢失
 
 也可以直接使用 [docker-compose.yml](./docker-compose.yml)：
 
 ```bash
-HOST_VIDEO_ROOT_1=/你的视频目录1 \
-HOST_VIDEO_ROOT_2=/你的视频目录2 \
-HOST_DATA_DIR=./data \
-docker compose up -d --build
+docker compose up -d
+```
+
+`docker-compose.yml` 内容如下：
+
+```yaml
+services:
+  replay:
+    container_name: mi-nas-camera-replay
+    image: hesier/mi-nas-camera-replay:latest
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - ./.env
+    volumes:
+      - ${HOST_VIDEO_ROOT_1:-/videos/cam1}:/videos/cam1:ro
+      - ${HOST_VIDEO_ROOT_2:-/videos/cam2}:/videos/cam2:ro
+      - ${HOST_DATA_DIR:-./data}:/app/backend/data
 ```
 
 补充说明：
 
-- `docker-compose.yml` 默认读取 `backend/.env`
-- Compose 版本默认把宿主机视频目录挂到容器内的 `./videos/cam1`、`./videos/cam2`
-- 因此 `backend/.env` 中的 `VIDEO_ROOT_1`、`VIDEO_ROOT_2` 建议保持为 `./videos/cam1`、`./videos/cam2`
-- 如果你只有一个摄像头，可以只关注 `HOST_VIDEO_ROOT_1`，第二个挂载保持默认空目录也不会影响启动
-- 如果你改过 `backend/.env` 里的 `VIDEO_ROOT_n` 路径，记得同步修改 Compose 里的容器挂载目标
+- `docker-compose.yml` 默认读取根目录 `.env`
+- Compose 与 `docker run` 都直接使用 `hesier/mi-nas-camera-replay:latest`
+- `HOST_VIDEO_ROOT_1`、`HOST_VIDEO_ROOT_2` 是宿主机目录
+- `VIDEO_ROOT_1`、`VIDEO_ROOT_2` 是容器内目录，默认分别对应 `/videos/cam1`、`/videos/cam2`
+- 视频目录建议以只读方式挂载
+- SQLite 文件建议单独挂载持久化目录，避免容器删除后数据丢失
+- 容器启动后，页面与 API 统一由 `http://127.0.0.1:8000` 提供
 
 ## 目录说明
 
@@ -59,14 +86,57 @@ docker compose up -d --build
 
 ## 快速启动
 
-### 1. 启动后端
+### 1. 安装基础依赖
+
+本地开发至少需要：
+
+- `ffmpeg`：后端会调用 `ffprobe` 解析视频时长
+- `Python 3.12+`
+- `Node.js 20+`
+
+常见安装方式：
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install -y ffmpeg python3 python3-venv python3-pip nodejs npm
+```
+
+安装完成后可以简单检查：
+
+```bash
+ffprobe -version
+python3 --version
+node -v
+npm -v
+```
+
+### 2. 创建后端虚拟环境并安装依赖
+
+```bash
+cd backend
+python3 -m venv .venv
+./.venv/bin/pip install -e .
+```
+
+### 3. 安装前端依赖
+
+```bash
+cd frontend
+npm install
+```
+
+### 4. 启动后端
 
 在 `backend/` 目录准备 `.env`：
 
 ```env
 VIDEO_ROOT_1=./videos/cam1
 VIDEO_ROOT_2=./videos/cam2
-APP_PASSWORD=change-me
+APP_PASSWORD=123456
 INDEX_ON_STARTUP=false
 INDEX_SCHEDULER_ENABLED=false
 INDEX_SCHEDULER_TIME=03:00
@@ -89,7 +159,7 @@ cd backend
 - 修改任意 `VIDEO_ROOT_n` 或 `APP_PASSWORD` 后，都需要重启后端服务
 - 如果你是从旧版单通道数据库升级过来，需要手动删除旧的 `backend/replay.db` 后重新建索引
 
-### 2. 初始化一次视频索引
+### 5. 初始化一次视频索引
 
 首次建议执行一次同步扫描：
 
@@ -104,11 +174,10 @@ cd backend
 curl -X POST http://127.0.0.1:8000/api/index/rebuild
 ```
 
-### 3. 启动前端
+### 6. 启动前端
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 

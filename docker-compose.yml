@@ -1,17 +1,13 @@
 services:
   replay:
     container_name: mi-nas-camera-replay
-    image: mi-nas-camera-replay
-    build:
-      context: .
+    image: hesier/mi-nas-camera-replay:latest
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8000}:8000"
     env_file:
-      - ./backend/.env
-    environment:
-      SQLITE_URL: ${SQLITE_URL:-sqlite:///./data/replay.db}
+      - ./.env
     volumes:
-      - ${HOST_VIDEO_ROOT_1:-./backend/videos/cam1}:/app/backend/videos/cam1:ro
-      - ${HOST_VIDEO_ROOT_2:-./backend/videos/cam2}:/app/backend/videos/cam2:ro
+      - ${HOST_VIDEO_ROOT_1:-./videos/cam1}:/videos/cam1:ro
+      - ${HOST_VIDEO_ROOT_2:-./videos/cam2}:/videos/cam2:ro
       - ${HOST_DATA_DIR:-./data}:/app/backend/data
