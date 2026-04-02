@@ -78,6 +78,7 @@ services:
 - 视频目录建议以只读方式挂载
 - SQLite 文件建议单独挂载持久化目录，避免容器删除后数据丢失
 - 容器启动后，页面与 API 统一由 `http://127.0.0.1:8000` 提供
+- 推送形如 `v1.0.0` 的 Git tag 后，GitHub Actions 会自动发布 `hesier/mi-nas-camera-replay:v1.0.0` 和 `hesier/mi-nas-camera-replay:latest`
 
 ## 目录说明
 
